@@ -1,14 +1,14 @@
 import { useNavigate, useLocation } from 'react-router-dom';
-import {LogOut } from 'lucide-react'
+//import {LogOut } from 'lucide-react'
 import {
     ConfigContainer,
     LogoSection,
     SystemStatus,
     NavigationCenter,
-    ConsoleButton,
+    //ConsoleButton,
     ConsoleContainer,
     HeaderContainer,
-    Square,
+    //Square,
     UserAvatar,
     DescriptionUser,
     NameUser,
@@ -66,10 +66,10 @@ export function HeaderConfig() {
                         <UserAvatar>JD</UserAvatar>
                        
                     </UserContainer>
-                    <ConsoleButton>
+                    {/* <ConsoleButton>
                         <Square /> 
                         CONSOLE
-                    </ConsoleButton>
+                    </ConsoleButton> */}
                 </ConsoleContainer>
             </HeaderContainer>
         </ConfigContainer>

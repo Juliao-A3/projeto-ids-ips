@@ -65,7 +65,7 @@ export function Header() {
               </UserContent>
               <UserAvatar>JD</UserAvatar>
           </UserContainer>
-          <ConfigButton onClick={() => navigate('/settings/general')}>
+          <ConfigButton onClick={() => navigate('/settings/ai-model')}>
             <Settings size={14} />
             CONFIG
           </ConfigButton>

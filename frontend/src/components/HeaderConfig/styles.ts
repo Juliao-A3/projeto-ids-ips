@@ -120,8 +120,7 @@ export const ConsoleButton = styled.div `
     }
 `
 export const ConsoleContainer = styled.div `
-    display: flex;
-    padding: 6px 12px;
+    display: flex;  
     align-items: center;
 `
 

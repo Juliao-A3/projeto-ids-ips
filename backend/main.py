@@ -5,7 +5,10 @@ from passlib.context import CryptContext
 
 load_dotenv()
 
+ALGORITHM = os.getenv("ALGORITHM")
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES"))
 SECRET_KEY = os.getenv("SECRET_KEY")
+
 bcrypt_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 app = FastAPI()
