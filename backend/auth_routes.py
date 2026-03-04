@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
-from backend.dependencies import get_session, verificar_token
+from backend.dependencies import get_session, verificar_token, require_role
 from backend.models import Usuario, engine
 from backend.main import ACCESS_TOKEN_EXPIRE_MINUTES, ALGORITHM, bcrypt_context
 from backend.schemas import LoginSchema, UsuarioSchema
@@ -36,7 +36,8 @@ async def login():
     return {'mensagem': 'Voce acessou a rota padrao de autenticacao'}
 
 @auth_router.post('/criar-usuario')
-async def criar_usuario(dados: UsuarioSchema, session: Session = Depends(get_session)):
+@require_role(["admin"])
+async def criar_usuario(dados: UsuarioSchema, usuario: Usuario = Depends(verificar_token), session: Session = Depends(get_session)):
     try:
         usuario_existente = session.query(Usuario).filter(Usuario.email == dados.email).first()
         if usuario_existente:

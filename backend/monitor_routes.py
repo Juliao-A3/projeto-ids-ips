@@ -1,13 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException
-from backend.dependencies import get_session
-from backend.models import Alerta, LogEvento
+from backend.dependencies import get_session, verificar_token, require_role
+from backend.models import Alerta, LogEvento, Usuario
 from backend.schemas import LogEventoSchema
 
 
 monitor_router = APIRouter(prefix='/monitor', tags=['monitoramento'])
 
 @monitor_router.post('/salvar_alerta', status_code=201)
-async def salvar_alerta(log_evento: LogEventoSchema, session = Depends(get_session)):
+@require_role(["admin"])
+async def salvar_alerta(log_evento: LogEventoSchema, usuario: Usuario = Depends(verificar_token), session = Depends(get_session)):
     try:
         event_log = LogEvento(
             src_ip=log_evento.src_ip,
@@ -39,7 +40,8 @@ async def salvar_alerta(log_evento: LogEventoSchema, session = Depends(get_sessi
 
 
 @monitor_router.get('/logs')
-async def listar_logs(limit: int = 20, session = Depends(get_session)):
+@require_role(["admin", "analista"])
+async def listar_logs(limit: int = 20, usuario: Usuario = Depends(verificar_token), session = Depends(get_session)):
     logs = session.query(LogEvento).order_by(LogEvento.id.desc()).limit(limit).all()
     result = []
     for l in logs:
