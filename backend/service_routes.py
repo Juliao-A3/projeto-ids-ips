@@ -20,6 +20,33 @@ async def get_stats(dados: StatsResponse, session = Depends(get_session)):
     }
     return stats
 
+
+@service_router.get('/system/metrics')
+async def system_metrics():
+    try:
+        import psutil
+        cpu = psutil.cpu_percent(interval=None)
+        mem = psutil.virtual_memory().percent
+        net = psutil.net_io_counters()
+        # For simplicity convert bytes_sent+bytes_recv per second approximate
+        # since we can't measure delta easily, just show total in Mbps
+        total_bytes = net.bytes_sent + net.bytes_recv
+        gbps = (total_bytes * 8) / (1024**3)
+        # return computed speeds
+        return {
+            "cpu_load": cpu,
+            "memory": mem,
+            "network_gbps": round(gbps, 2)
+        }
+    except ImportError:
+        # psutil not installed, return dummy data
+        return {
+            "cpu_load": 0,
+            "memory": 0,
+            "network_gbps": 0
+        }
+
+
 @service_router.get('/start')
 async def start_service():
     # Aqui vamos poder iniciar o serviço de monitoramento

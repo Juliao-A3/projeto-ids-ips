@@ -1,5 +1,7 @@
 import { Settings, FileText } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { api } from '../../services/api';
 
 import {
   HeaderContainer,
@@ -25,6 +27,21 @@ import {
 
 export function Header() {
   const navigate = useNavigate();
+  const [metrics, setMetrics] = useState<{cpu_load:number;memory:number;network_gbps:number} | null>(null);
+
+  useEffect(() => {
+    const fetchMetrics = async () => {
+      try {
+        const resp = await api.get('/service/system/metrics');
+        setMetrics(resp.data);
+      } catch (e) {
+        console.error('Erro ao buscar métricas', e);
+      }
+    };
+    fetchMetrics();
+    const iv = setInterval(fetchMetrics, 5000);
+    return () => clearInterval(iv);
+  }, []);
 
   return (
     <HeaderContainer>
@@ -44,27 +61,20 @@ export function Header() {
           <Metric>
             <StatusInfo>
               <Loadcpu>CPU LOAD</Loadcpu>
-              <CpuPorcent>12%</CpuPorcent>
+              <CpuPorcent>{metrics ? `${metrics.cpu_load}%` : '--'}</CpuPorcent>
             </StatusInfo>
             <StatusInfo>
               <Loadcpu>MEMORY</Loadcpu>
-              <CpuPorcent>34%</CpuPorcent>
+              <CpuPorcent>{metrics ? `${metrics.memory}%` : '--'}</CpuPorcent>
             </StatusInfo>
             <StatusInfo>
               <Loadcpu>NETWORK</Loadcpu>
-              <SpeedStatus>1.2 Gbps</SpeedStatus>
+              <SpeedStatus>{metrics ? `${metrics.network_gbps} Gbps` : '--'}</SpeedStatus>
             </StatusInfo>
           </Metric>
         </HeaderCenter>
 
         <AlertConfig>
-          <UserContainer>
-              <UserContent>
-                  <NameUser>Julio Domingos</NameUser>
-                  <DescriptionUser>ANALISTA DE SEGURANÇA</DescriptionUser>
-              </UserContent>
-              <UserAvatar>JD</UserAvatar>
-          </UserContainer>
           <ConfigButton onClick={() => navigate('/settings/ai-model')}>
             <Settings size={14} />
             CONFIG
