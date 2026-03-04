@@ -8,17 +8,31 @@ import {
     Divider
 } from './styles'
 
-export function LogInfo() {
+interface LogInfoProps {
+    data: {
+        id: number;
+        timestamp?: string;
+        src_ip?: string;
+        dest_ip?: string;
+        protocolo?: string;
+        severidade?: string;
+        status?: string;
+    };
+}
+
+export function LogInfo({ data }: LogInfoProps) {
+    const dateStr = data.timestamp ? new Date(data.timestamp).toLocaleTimeString() : '-';
+
     return (
         <LogContainer>
             <LogMain>
                 <LogContent>
                 <LogRow>
-                <span>15:30:12</span>
-                <span>192.168.10.45</span>
-                <span>DATABASE_SVR_02</span>
-                <span>TCP/SQL</span>
-                <Severity>INFO</Severity>
+                <span>{dateStr}</span>
+                <span>{data.src_ip || '-'}</span>
+                <span>{data.dest_ip || '-'}</span>
+                <span>{data.protocolo || '-'}</span>
+                <Severity>{data.severidade || '-'}</Severity>
                 <Actions>
                     <button>DETALHES</button>
                 </Actions>

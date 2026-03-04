@@ -34,7 +34,29 @@ import {
 
 
 
+import { useEffect, useState } from 'react';
+import { api } from '../../services/api';
+
 export function LogCard() {
+    const [logs, setLogs] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const fetchLogs = async () => {
+            try {
+                const resp = await api.get('/monitor/logs?limit=10');
+                setLogs(resp.data);
+            } catch (err) {
+                console.error('Erro ao buscar logs:', err);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchLogs();
+        const interval = setInterval(fetchLogs, 15000);
+        return () => clearInterval(interval);
+    }, []);
+
     return (
         <LogContainer>
 
@@ -65,8 +87,17 @@ export function LogCard() {
                 </ListaMenu>
 
                 <Divider/>
-                <LogInfo/>
-                <LogInfo/>
+                {loading ? (
+                    <div>Carregando logs...</div>
+                ) : logs.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '2rem' }}>
+                        Nenhum tráfego registrado ainda
+                    </div>
+                ) : (
+                    logs.map(l => (
+                        <LogInfo key={l.id} data={l} />
+                    ))
+                )}
             </LogSection>
 
             <SidebarWrapper>

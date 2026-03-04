@@ -36,3 +36,20 @@ async def salvar_alerta(log_evento: LogEventoSchema, session = Depends(get_sessi
     except Exception as e:
         session.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@monitor_router.get('/logs')
+async def listar_logs(limit: int = 20, session = Depends(get_session)):
+    logs = session.query(LogEvento).order_by(LogEvento.id.desc()).limit(limit).all()
+    result = []
+    for l in logs:
+        result.append({
+            "id": l.id,
+            "timestamp": l.criado_em.isoformat() if l.criado_em else None,
+            "src_ip": l.src_ip,
+            "dest_ip": l.dest_ip,
+            "protocolo": l.protocolo,
+            "severidade": l.severidade,
+            "status": l.status
+        })
+    return result
