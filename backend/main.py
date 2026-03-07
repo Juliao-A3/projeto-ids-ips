@@ -18,7 +18,9 @@ from backend.monitor_routes import monitor_router
 from backend.ai_routes import ai_router
 from backend.notification_routes import notification_router
 from backend.reports_routes import reports_router
+from backend.network_routes import network_router
 
+app.include_router(network_router)
 app.include_router(reports_router)
 app.include_router(notification_router)
 app.include_router(auth_router)

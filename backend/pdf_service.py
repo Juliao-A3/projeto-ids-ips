@@ -97,7 +97,7 @@ def grafico_picos(logs) -> io.BytesIO:
     return buf
 
 
-# ── PDF principal ─────────────────────────────────────────────────────────────
+# ── PDF principal 
 def gerar_pdf(logs, summary, period) -> io.BytesIO:
     from backend.models import Severidade, Status
 
@@ -122,13 +122,13 @@ def gerar_pdf(logs, summary, period) -> io.BytesIO:
     margin = 1.8 * cm
     cw     = W - 2 * margin   # content width
 
-    # ── fundo ────────────────────────────────────────────────────────────────
+    # ── fundo
     c.setFillColor(C_BG)
     c.rect(0, 0, W, H, fill=1, stroke=0)
 
     y = H - margin
 
-    # ── header card ──────────────────────────────────────────────────────────
+    # ── header card 
     hh = 2.2 * cm
     draw_rounded_rect(c, margin, y - hh, cw, hh, r=6,
                       fill=C_WHITE, stroke=C_BORDER, stroke_width=0.5)
@@ -163,13 +163,13 @@ def gerar_pdf(logs, summary, period) -> io.BytesIO:
 
     y -= hh + 0.35*cm
 
-    # ── linha azul ───────────────────────────────────────────────────────────
+    # ── linha azul 
     c.setStrokeColor(C_PRIMARY)
     c.setLineWidth(1.5)
     c.line(margin, y, margin + cw, y)
     y -= 0.45*cm
 
-    # ── sumário executivo ─────────────────────────────────────────────────────
+    # ── sumário executivo 
     c.setFillColor(C_TEXT)
     c.setFont('Helvetica-Bold', 8.5)
     c.drawString(margin, y, '\u25a0  SUM\u00c1RIO EXECUTIVO')
@@ -203,7 +203,7 @@ def gerar_pdf(logs, summary, period) -> io.BytesIO:
 
     y -= card_h + 0.45*cm
 
-    # ── análise ia ───────────────────────────────────────────────────────────
+    # ── análise ia 
     ia_h = 2.6*cm
     draw_rounded_rect(c, margin, y - ia_h, cw, ia_h, r=5,
                       fill=C_WHITE, stroke=C_BORDER, stroke_width=0.5)
@@ -253,7 +253,7 @@ def gerar_pdf(logs, summary, period) -> io.BytesIO:
 
     y -= ia_h + 0.45*cm
 
-    # ── duas colunas: protocolos + gráfico ───────────────────────────────────
+    # ── duas colunas: protocolos + gráfico 
     col_w = (cw - 0.4*cm) / 2
     col_h = 3.5*cm
 
@@ -312,7 +312,7 @@ def gerar_pdf(logs, summary, period) -> io.BytesIO:
 
     y -= col_h + 0.45*cm
 
-    # ── tabela de incidentes ──────────────────────────────────────────────────
+    # ── tabela de incidentes 
     c.setFillColor(C_TEXT)
     c.setFont('Helvetica-Bold', 8.5)
     c.drawString(margin, y, '\u25a0  INCIDENTES CR\u00cdTICOS RECENTES')
@@ -367,7 +367,7 @@ def gerar_pdf(logs, summary, period) -> io.BytesIO:
 
     y -= 0.5*cm
 
-    # ── footer ────────────────────────────────────────────────────────────────
+    # ── footer 
     fy = margin + 1.2*cm
     c.setStrokeColor(C_BORDER)
     c.setLineWidth(0.5)

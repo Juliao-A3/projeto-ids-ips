@@ -201,6 +201,16 @@ class NotificationConfig(Base):
         self.trigger_medium = trigger_medium
         self.atualizado_em = datetime.now(timezone.utc)
 
+class NetworkConfig(Base):
+    __tablename__ = "network_config"
+
+    id                  = Column(Integer, primary_key=True, autoincrement=True)
+    capture_interface   = Column(String, default="eth0")
+    promiscuous_mode    = Column(Boolean, default=True)
+    bpf_filter          = Column(String, default="")
+    whitelist           = Column(String, default="192.168.1.0/24, 10.0.0.0/8, 127.0.0.1")
+    atualizado_em       = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
 Base.metadata.create_all(engine)
 
 #Executa a criacao dos metadados do seu banco de seu banco (criar efetivamente o banco de dados)
