@@ -17,6 +17,7 @@ import {
   StatusItem,
   StatusLabel,
 } from "./styles";
+
 import { api } from "../../services/api";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -78,9 +79,11 @@ export default function Login() {
         .toUpperCase()
         .slice(0, 2) || "U";
       
+      localStorage.setItem("user_role", userData.role.toLowerCase());
+
       setUser({
         name: userData.name,
-        role: userData.role,
+        role: userData.role.toLowerCase(), // normaliza aqui
         initials
       });
 

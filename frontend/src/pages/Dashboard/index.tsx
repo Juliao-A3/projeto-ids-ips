@@ -10,7 +10,6 @@ export function Dashboard() {
             <MainContent>
                 <Card/>
                 <LogCard />
-                <OutputTecnico/>
             </MainContent>
         </SystemContainer>
     );

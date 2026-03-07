@@ -33,6 +33,7 @@ export function Header() {
     const fetchMetrics = async () => {
       try {
         const resp = await api.get('/service/system/metrics');
+        console.log('Metrics recebidas:', resp.data);
         setMetrics(resp.data);
       } catch (e) {
         console.error('Erro ao buscar métricas', e);

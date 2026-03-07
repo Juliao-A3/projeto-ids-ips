@@ -3,11 +3,12 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 from backend.dependencies import get_session, verificar_token, require_role
 from backend.models import Usuario, engine
-from backend.main import ACCESS_TOKEN_EXPIRE_MINUTES, ALGORITHM, bcrypt_context
+from backend.config import ACCESS_TOKEN_EXPIRE_MINUTES, ALGORITHM, bcrypt_context, SECRET_KEY
 from backend.schemas import LoginSchema, UsuarioSchema
 from jose import jwt, JWTError
 from datetime import datetime, timedelta, timezone
 from fastapi.security import OAuth2PasswordRequestForm
+from backend.schemas import RefreshTokenSchema
 
 auth_router = APIRouter(prefix='/auth', tags=['auth'])
 
@@ -16,10 +17,10 @@ def criar_token(id_usuario, duracao_token=None):
         duracao_token = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     expire = datetime.now(timezone.utc) + duracao_token
     payload = {
-        "sub": id_usuario,
+        "sub": str(id_usuario),
         "exp": expire
     }
-    token = jwt.encode(payload, "SECRET_KEY", ALGORITHM)
+    token = jwt.encode(payload, SECRET_KEY, ALGORITHM)
     return token
  
 
@@ -32,23 +33,31 @@ def autenticar_usuario(email: str, senha: str, session: Session):
     return usuario
 
 @auth_router.get('/')
-async def login():
-    return {'mensagem': 'Voce acessou a rota padrao de autenticacao'}
+async def auth_index():
+    return {'mensagem': 'Rota de autenticação'}
 
 @auth_router.post('/criar-usuario')
-@require_role(["admin"])
-async def criar_usuario(dados: UsuarioSchema, usuario: Usuario = Depends(verificar_token), session: Session = Depends(get_session)):
+async def criar_usuario(
+    dados: UsuarioSchema,
+    usuario: Usuario = Depends(require_role(["admin"])),
+    session: Session = Depends(get_session)
+):
     try:
         usuario_existente = session.query(Usuario).filter(Usuario.email == dados.email).first()
         if usuario_existente:
             raise HTTPException(status_code=400, detail='Esse usuario já existe')
         
+        # Validar role
+        from backend.models import UserRole
+        if dados.role not in [role.value for role in UserRole]:
+            raise HTTPException(status_code=400, detail='Role inválido')
+        
         usuario = Usuario(
             email=dados.email,
             senha_hash=bcrypt_context.hash(dados.senha),
-            role="admin",  # Definindo o role como "admin" por padrão
+            role=dados.role,
             nome=dados.nome,
-            ativo=True
+            ativo=dados.ativo
         )
         session.add(usuario)
         session.commit()
@@ -93,31 +102,73 @@ async def register(dados: UsuarioSchema, session: Session = Depends(get_session)
     
     
 @auth_router.post('/login')
-async def login(Usuario: LoginSchema, session: Session = Depends(get_session)):
-    login_schema = LoginSchema(email=Usuario.email, senha=Usuario.senha)
-    usuario = autenticar_usuario(login_schema.email, login_schema.senha, session)
+async def login(dados: LoginSchema, session: Session = Depends(get_session)):
+    usuario = autenticar_usuario(dados.email, dados.senha, session)
     if not usuario:
         raise HTTPException(status_code=401, detail='Email ou senha inválidos')
-    else:
-        access_token = criar_token(usuario.id)
-        refresh_token = criar_token(usuario.id, duracao_token=timedelta(minutes=25))
-        return {
-            'access_token': access_token, 
-            'refresh_token': refresh_token, 
-            'token_type': 'Bearer',
-            'user': {
-                'name': usuario.nome,
-                'role': usuario.role.value
-            }
+    
+    access_token = criar_token(usuario.id)
+    refresh_token = criar_token(usuario.id, duracao_token=timedelta(minutes=25))
+    
+    return {
+        'access_token': access_token,
+        'refresh_token': refresh_token,
+        'token_type': 'Bearer',
+        'user': {
+            'name': usuario.nome,
+            'role': usuario.role.value
         }
+    }
 
-@auth_router.get('/refresh')
-async def refresh_token(usuario: Usuario = Depends(verificar_token)):
-    if not usuario:
-        raise HTTPException(status_code=401, detail='Token inválido')
-    else:
-        new_access_token = criar_token(usuario.id)
+@auth_router.get('/users')
+async def listar_usuarios(
+    usuario: Usuario = Depends(require_role(["admin"])),
+    session: Session = Depends(get_session)
+):
+    usuarios = session.query(Usuario).all()
+    return [
+        {
+            'id': u.id,
+            'nome': u.nome,
+            'email': u.email,
+            'role': u.role.value,
+            'ativo': u.ativo,
+            'criado_em': u.criado_em
+        } for u in usuarios
+    ]
+
+@auth_router.post('/refresh')
+async def refresh_token(dados: RefreshTokenSchema, session: Session = Depends(get_session)):
+    try:
+        # valida o refresh token
+        payload = jwt.decode(dados.refresh_token, SECRET_KEY, algorithms=ALGORITHM)
+        id_usuario = int(payload.get("sub"))
+        
+        usuario = session.query(Usuario).filter(Usuario.id == id_usuario).first()
+        if not usuario:
+            raise HTTPException(status_code=401, detail="Token inválido")
+        
+        # gera novo access token
+        novo_token = criar_token(usuario.id)
+        
         return {
-            'access_token': new_access_token, 
-            'token_type': 'Bearer'
-            }
+            "access_token": novo_token,
+            "token_type": "Bearer"
+        }
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Refresh token inválido ou expirado")    
+
+@auth_router.post('/token')
+async def login_token(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    session: Session = Depends(get_session)
+):
+    usuario = autenticar_usuario(form_data.username, form_data.password, session)
+    if not usuario:
+        raise HTTPException(status_code=401, detail='Email ou senha inválidos')
+    
+    access_token = criar_token(usuario.id)
+    return {
+        "access_token": access_token,
+        "token_type": "bearer"
+    }        

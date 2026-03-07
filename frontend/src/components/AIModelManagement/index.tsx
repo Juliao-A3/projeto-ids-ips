@@ -1,105 +1,34 @@
 import { useState } from 'react';
-import { Cpu, RefreshCw, Trash2, Activity, Table } from 'lucide-react';
+import { Cpu, Trash2, Activity } from 'lucide-react';
 import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ReferenceLine,
-  ResponsiveContainer
+  BarChart, Bar, XAxis, YAxis, Tooltip, ReferenceLine, ResponsiveContainer
 } from 'recharts';
 import {
-  Container,
-  Content,
-  Section,
-  SectionHeader,
-  SectionTitle,
-  SectionContent,
-  SectionActions,
-  ReloadButton,
-  ClearCacheButton,
-  StatusGrid,
-  StatusCard,
-  StatusLabel,
-  StatusValue,
-  StatusSubValue,
-  MonitoringGrid,
-  ChartContainer,
-  ChartHeader,
-  ChartLegend,
-  ChartLegendItem,
-  ChartLegendDot,
-  ChartFooter,
-  MetricsContainer,
-  MetricItem,
-  MetricHeader,
-  MetricLabel,
-  MetricValue,
-  MetricBar,
-  MetricBarFill,
-  MetricInfo,
-  MetricSubLabel,
-  FeaturesCell,
-  FeaturesHeaderCell,
-  FeaturesHeaderRow,
-  FeaturesRow,
-  FeaturesTable,
-  ImportanceBadge,
-  Footer,
-  FooterLeft,
-  FooterButtons,
-  FooterStatus,
-  RestoreButton,
-  SaveButton,
+  Container, Content, Section, SectionHeader, SectionTitle, SectionContent,
+  SectionActions, ClearCacheButton, StatusGrid, StatusCard, StatusLabel,
+  StatusValue, StatusSubValue, MonitoringGrid, ChartContainer, ChartHeader,
+  ChartLegend, ChartLegendItem, ChartLegendDot, ChartFooter, MetricsContainer,
+  MetricItem, MetricHeader, MetricLabel, MetricValue, MetricBar, MetricBarFill,
+  MetricInfo, MetricSubLabel,
 } from './styles';
-import { ToggleSwitch } from '../ToggleSwitch';
-
-// Dados mockados do gráfico - virão do backend
-const anomalyData = [
-  { time: '-15 min', score: 0.2, threshold: 0.7 },
-  { time: '', score: 0.3, threshold: 0.7 },
-  { time: '', score: 0.25, threshold: 0.7 },
-  { time: '', score: 0.4, threshold: 0.7 },
-  { time: '', score: 0.35, threshold: 0.7 },
-  { time: '', score: 0.5, threshold: 0.7 },
-  { time: '', score: 0.45, threshold: 0.7 },
-  { time: '', score: 0.6, threshold: 0.7 },
-  { time: '', score: 0.55, threshold: 0.7 },
-  { time: '', score: 0.8, threshold: 0.7 },
-  { time: '', score: 0.75, threshold: 0.7 },
-  { time: '', score: 0.5, threshold: 0.7 },
-  { time: '', score: 0.4, threshold: 0.7 },
-  { time: '', score: 0.3, threshold: 0.7 },
-  { time: 'Agora', score: 0.25, threshold: 0.7 },
-];
-
-const featuresData = [
-    {
-      id: 1,
-      attribute: 'IP Origem / Destino',
-      value: '192.168.1.42',
-      importance: 'Alta',
-      enabled: true
-    },
-    {
-      id: 2,
-      attribute: 'Porta (TCP/UDP)',
-      value: '443',
-      importance: 'Alta',
-      enabled: true
-    },
-    {
-      id: 3,
-      attribute: 'Tamanho do Pacote (Payload)',
-      value: '1,460 bytes',
-      importance: 'Média',
-      enabled: true
-    }
-  ];
+import { useAIMetrics } from '../../../hooks/useAIMetrics';
 
 export function AIModelManagement() {
-  const [bridgeEnabled, setBridgeEnabled] = useState(true);  
+  const { data, connected, error } = useAIMetrics();
+
+  if (!data) return (
+    <Container>
+      <div style={{
+        display: "flex", alignItems: "center", justifyContent: "center",
+        height: "200px", color: "#64748B",
+        fontFamily: "'Share Tech Mono', monospace",
+        fontSize: "12px", letterSpacing: "0.1em"
+      }}>
+        {error ? `⚠ ${error}` : "A LIGAR AO SERVIDOR..."}
+      </div>
+    </Container>
+  );
+
   return (
     <Container>
       <Content>
@@ -112,10 +41,19 @@ export function AIModelManagement() {
               <SectionTitle>STATUS OPERACIONAL</SectionTitle>
             </div>
             <SectionActions>
-              <ReloadButton>
-                <RefreshCw size={14} />
-                RECARREGAR MODELO (.PKL)
-              </ReloadButton>
+              {/* indicador LIVE */}
+              <div style={{
+                display: "flex", alignItems: "center", gap: "6px",
+                fontSize: "10px", fontFamily: "'Share Tech Mono', monospace",
+                color: connected ? "#00C853" : "#ef4444", marginRight: "12px"
+              }}>
+                <span style={{
+                  width: 6, height: 6, borderRadius: "50%",
+                  background: connected ? "#00C853" : "#ef4444",
+                  display: "inline-block"
+                }} />
+                {connected ? "LIVE" : "DESLIGADO"}
+              </div>
               <ClearCacheButton>
                 <Trash2 size={14} />
                 LIMPAR CACHE
@@ -126,22 +64,21 @@ export function AIModelManagement() {
             <StatusGrid>
               <StatusCard>
                 <StatusLabel>MODELO ATIVO</StatusLabel>
-                <StatusValue>XGB_PROD_v2</StatusValue>
+                <StatusValue>{data.status.modelo_ativo}</StatusValue>
               </StatusCard>
               <StatusCard>
                 <StatusLabel>TEMPO DE UPTIME</StatusLabel>
-                <StatusValue>14d 02h 45m</StatusValue>
+                <StatusValue>{data.status.uptime}</StatusValue>
               </StatusCard>
               <StatusCard>
                 <StatusLabel>LATÊNCIA MÉDIA</StatusLabel>
                 <StatusValue highlight>
-                  12.4 <StatusSubValue>ms</StatusSubValue>
+                  {data.status.latencia_ms} <StatusSubValue>ms</StatusSubValue>
                 </StatusValue>
-                <StatusSubValue>P95: 15ms</StatusSubValue>
               </StatusCard>
               <StatusCard>
                 <StatusLabel>ACURÁCIA REAL-TIME</StatusLabel>
-                <StatusValue highlight>98.4%</StatusValue>
+                <StatusValue highlight>{data.status.acuracia}%</StatusValue>
               </StatusCard>
             </StatusGrid>
           </SectionContent>
@@ -158,74 +95,53 @@ export function AIModelManagement() {
           <SectionContent>
             <MonitoringGrid>
 
+              {/* Gráfico */}
               <ChartContainer>
                 <ChartHeader>
                   <span>SCORE DE ANORMALIDADE (HISTÓRICO)</span>
                   <ChartLegend>
                     <ChartLegendItem>
-                      <ChartLegendDot color="#0ea5e9" />
-                      Score
+                      <ChartLegendDot color="#0ea5e9" />Score
                     </ChartLegendItem>
                     <ChartLegendItem>
-                      <ChartLegendDot color="#ef4444" />
-                      Threshold
+                      <ChartLegendDot color="#ef4444" />Threshold
                     </ChartLegendItem>
                   </ChartLegend>
                 </ChartHeader>
 
                 <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={anomalyData} barSize={12}>
-                    <XAxis 
-                      dataKey="time" 
+                  <BarChart data={data.anomaly_history} barSize={12}>
+                    <XAxis
+                      dataKey="time"
                       tick={{ fill: '#888', fontSize: 10 }}
-                      axisLine={false}
-                      tickLine={false}
+                      axisLine={false} tickLine={false}
                     />
-                    <YAxis 
+                    <YAxis
                       domain={[0, 1]}
                       tick={{ fill: '#888', fontSize: 10 }}
-                      axisLine={false}
-                      tickLine={false}
+                      axisLine={false} tickLine={false}
                     />
-                    <Tooltip
-                      contentStyle={{
-                        background: '#1a1a1a',
-                        border: '1px solid #333',
-                        borderRadius: '6px',
-                        color: '#fff',
-                        fontSize: '12px'
-                      }}
-                    />
-                    <ReferenceLine 
-                      y={0.7} 
-                      stroke="#ef4444" 
-                      strokeDasharray="4 4"
-                      strokeWidth={1.5}
-                    />
-                    <Bar 
-                      dataKey="score" 
-                      fill="#0ea5e9"
-                      radius={[3, 3, 0, 0]}
-                    />
+                    <Tooltip contentStyle={{
+                      background: '#1a1a1a', border: '1px solid #333',
+                      borderRadius: '6px', color: '#fff', fontSize: '12px'
+                    }} />
+                    <ReferenceLine y={0.7} stroke="#ef4444" strokeDasharray="4 4" strokeWidth={1.5} />
+                    <Bar dataKey="score" fill="#0ea5e9" radius={[3, 3, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
 
                 <ChartFooter>
-                  <span>-15 min</span>
-                  <span>Agora</span>
+                  <span>{data.anomaly_history[0]?.time || ""}</span>
+                  <span>{data.anomaly_history[data.anomaly_history.length - 1]?.time || "Agora"}</span>
                 </ChartFooter>
               </ChartContainer>
 
-              {/* Métricas de Inferência */}
+              {/* Métricas */}
               <MetricsContainer>
-                <span style={{ 
-                  fontSize: '11px', 
-                  fontWeight: 600, 
-                  color: '#888',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.5px',
-                  marginBottom: '8px',
-                  display: 'block'
+                <span style={{
+                  fontSize: '11px', fontWeight: 600, color: '#888',
+                  textTransform: 'uppercase', letterSpacing: '0.5px',
+                  marginBottom: '8px', display: 'block'
                 }}>
                   MÉTRICAS DE INFERÊNCIA
                 </span>
@@ -233,93 +149,39 @@ export function AIModelManagement() {
                 <MetricItem>
                   <MetricHeader>
                     <MetricLabel>LATÊNCIA (MS)</MetricLabel>
-                    <MetricValue>12.4</MetricValue>
+                    <MetricValue>{data.metrics.latencia_ms}</MetricValue>
                   </MetricHeader>
                   <MetricBar>
-                    <MetricBarFill percentage={62} color="#0ea5e9" />
+                    <MetricBarFill percentage={Math.min(data.metrics.latencia_ms, 100)} color="#0ea5e9" />
                   </MetricBar>
                 </MetricItem>
 
                 <MetricItem>
                   <MetricHeader>
                     <MetricLabel>THROUGHPUT (REQ/S)</MetricLabel>
-                    <MetricValue>1,248</MetricValue>
+                    <MetricValue>{data.metrics.throughput}</MetricValue>
                   </MetricHeader>
                   <MetricBar>
-                    <MetricBarFill percentage={85} color="#0ea5e9" />
+                    <MetricBarFill percentage={Math.min(data.metrics.throughput, 100)} color="#0ea5e9" />
                   </MetricBar>
                 </MetricItem>
 
                 <MetricItem>
                   <MetricHeader>
                     <MetricLabel>USO DE CPU (%)</MetricLabel>
-                    <MetricValue>14.2%</MetricValue>
+                    <MetricValue>{data.metrics.cpu_percent}%</MetricValue>
                   </MetricHeader>
                   <MetricInfo>
                     <MetricSubLabel>MEMÓRIA (MODEL)</MetricSubLabel>
-                    <MetricSubLabel>842MB</MetricSubLabel>
+                    <MetricSubLabel>{data.metrics.memory_mb}MB</MetricSubLabel>
                   </MetricInfo>
                 </MetricItem>
-              </MetricsContainer>
 
+              </MetricsContainer>
             </MonitoringGrid>
           </SectionContent>
         </Section>
 
-        <Section>
-            <SectionHeader>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Table size={16} color="#0ea5e9" />
-                <SectionTitle>CAMPOS DE ANÁLISE (FEATURES)</SectionTitle>
-                </div>
-            </SectionHeader>
-            <SectionContent>
-                <FeaturesTable>
-                <thead>
-                    <FeaturesHeaderRow>
-                    <FeaturesHeaderCell>ATRIBUTO DE REDE</FeaturesHeaderCell>
-                    <FeaturesHeaderCell>VALOR ATUAL (LIVE)</FeaturesHeaderCell>
-                    <FeaturesHeaderCell>IMPORTÂNCIA</FeaturesHeaderCell>
-                    <FeaturesHeaderCell>STATUS</FeaturesHeaderCell>
-                    </FeaturesHeaderRow>
-                </thead>
-                <tbody>
-                    {featuresData.map((feature) => (
-                    <FeaturesRow key={feature.id}>
-                        <FeaturesCell>{feature.attribute}</FeaturesCell>
-                        <FeaturesCell highlight>{feature.value}</FeaturesCell>
-                        <FeaturesCell>
-                        <ImportanceBadge importance={feature.importance}>
-                            {feature.importance}
-                        </ImportanceBadge>
-                        </FeaturesCell>
-                        <FeaturesCell>
-                        <ToggleSwitch
-                            checked={bridgeEnabled}
-                            onChange={setBridgeEnabled}
-                        />
-                        </FeaturesCell>
-                    </FeaturesRow>
-                    ))}
-                </tbody>
-                </FeaturesTable>
-            </SectionContent>
-        </Section>  
-        <Footer>
-        <FooterLeft>
-          <FooterStatus>
-            <span style={{ color: '#888' }}>INTEGRIDADE DO MOTOR:</span>
-            <span style={{ color: '#22c55e', fontWeight: 600 }}>OPERACIONAL NORMAL</span>
-          </FooterStatus>
-          <span style={{ color: '#666', fontSize: '12px' }}>
-            SURICATA ENGINE: RUNNING • UPTIME: 142:07H:19M • IPS-INLINE MODE
-          </span>
-        </FooterLeft>
-        <FooterButtons>
-          <RestoreButton>RESTAURAR PADRÕES</RestoreButton>
-          <SaveButton>SALVAR ALTERAÇÕES</SaveButton>
-        </FooterButtons>
-      </Footer>      
       </Content>
     </Container>
   );

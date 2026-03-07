@@ -3,6 +3,7 @@ import { UserTable } from '../UserTable';
 import { PermissionsSection } from '../PermissionsSection';
 import { Modal } from '../Modal';
 import { AddUserForm } from '../AddUserForm';
+import { api } from '../../services/api';
 import {
   Container,
   Header,
@@ -16,11 +17,25 @@ import {
 
 export function UserManagement() {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  const handleAddUser = (userData: any) => {
-    console.log('Novo usuário:', userData);
-    // Aqui você enviaria os dados para o backend
-    setIsModalOpen(false);
+  const handleAddUser = async (userData: any) => {
+    try {
+      const response = await api.post('/auth/criar-usuario', {
+        nome: userData.name,
+        email: userData.email,
+        senha: userData.password,
+        role: userData.role.toLowerCase(),
+        ativo: true
+      });
+      console.log('Usuário criado com sucesso:', response.data);
+      setRefreshKey(prev => prev + 1); // Trigger refresh
+      return response.data;
+    } catch (error: any) {
+      const errorMsg = error.response?.data?.detail || 'Erro ao criar usuário';
+      console.error('Erro ao criar usuário:', errorMsg);
+      throw new Error(errorMsg);
+    }
   };
 
   return (
@@ -33,14 +48,8 @@ export function UserManagement() {
       </Header>
 
       <Content>
-        <UserTable />
-        <PermissionsSection />
+        <UserTable refreshTrigger={refreshKey} />
       </Content>
-
-      <Footer>
-        <RestoreButton>RESTAURAR PADRÕES</RestoreButton>
-        <SaveButton>SALVAR ALTERAÇÕES</SaveButton>
-      </Footer>
 
       {/* Modal */}
       <Modal

@@ -11,18 +11,19 @@ export default function ProtectedRoute({ children, allowedRoles }: Props) {
   const token = localStorage.getItem("access_token");
   const { user } = useAuth();
 
-  if (!token) {
-    return <Navigate to="/login" replace />;
-  }
+  console.log("=== ProtectedRoute ===");
+  console.log("token:", token);
+  console.log("user:", user);
+  console.log("allowedRoles:", allowedRoles);
+  console.log("user.role:", user?.role);
+  console.log("includes:", allowedRoles?.includes(user?.role ?? ""));
 
-  if (allowedRoles && user && !allowedRoles.includes(user.role)) {
-    return (
-      <div style={{ padding: "2rem", textAlign: "center" }}>
-        <h2>Acesso Denegado</h2>
-        <p>Você não tem permissão para acessar esta página.</p>
-        <a href="/">Voltar ao Dashboard</a>
-      </div>
-    );
+  if (!token) return <Navigate to="/login" replace />;
+  if (!user) return null;
+
+  if (allowedRoles && !allowedRoles.includes(user.role.toLowerCase())) {
+    console.log("BLOQUEADO — role não permitido");
+    return <Navigate to="/" replace />;
   }
 
   return children;

@@ -1,54 +1,51 @@
-import { createContext, useContext, useState, type ReactNode, useEffect } from "react";
+import { createContext, useContext, useState, type ReactNode } from "react";
 
 type User = {
   name: string;
   role: string;
   initials: string;
-} | null;
+};
 
 type AuthContextType = {
-  user: User;
-  setUser: (user: User) => void;
+  user: User | null;
+  setUser: (user: User | null) => void;
   logout: () => void;
 };
 
 const AuthContext = createContext<AuthContextType>({} as AuthContextType);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User>(null);
 
-  useEffect(() => {
-    const token = localStorage.getItem("access_token");
+  // lê do localStorage ao iniciar — resolve o problema do refresh
+  const [user, setUser] = useState<User | null>(() => {
     const name = localStorage.getItem("user_name");
     const role = localStorage.getItem("user_role");
+    const token = localStorage.getItem("access_token");
 
-    if (token && name && role) {
-      const initials = name
-        .trim()
-        .split(/\s+/)
-        .filter((word: string) => word.length > 0)
-        .map((word: string) => word[0])
-        .join("")
-        .toUpperCase()
-        .slice(0, 2) || "U";
+    if (!name || !role || !token) return null;
 
-      setUser({
-        name,
-        role,
-        initials
-      });
-    }
-  }, []);
+    const initials = name
+      .trim()
+      .split(/\s+/)
+      .map(w => w[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 2);
+
+    return { 
+      name, 
+      role: role.toLowerCase(), // normaliza aqui
+      initials 
+    };
+  });
 
   const logout = () => {
-    // Remove os tokens
     localStorage.removeItem("access_token");
     localStorage.removeItem("refresh_token");
     localStorage.removeItem("user_name");
     localStorage.removeItem("user_role");
-
-    // Limpa o estado do contexto
     setUser(null);
+    window.location.href = "/login";
   };
 
   return (

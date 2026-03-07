@@ -53,12 +53,24 @@ export const CardInfo = styled.div`
   gap: 0.5rem;
 `;
 
-export const CardNum = styled.span`
+export const CardNum = styled.span<{ $isActive?: boolean }>`
   font-size: 1.5rem;
   font-weight: 700;
   line-height: 1;
 
-  color: ${(props) => props.theme.colors.text.primary};
+  color: ${(props) => {
+    if (props.$isActive === true) return '#00ff00';
+    if (props.$isActive === false) return '#ff0000';
+    return props.theme.colors.text.primary;
+  }};
+  
+  text-shadow: ${(props) => {
+    if (props.$isActive === true) return '0 0 8px rgba(0, 255, 0, 0.5)';
+    if (props.$isActive === false) return '0 0 8px rgba(255, 0, 0, 0.5)';
+    return 'none';
+  }};
+  
+  transition: all 0.3s ease;
 `;
 
 

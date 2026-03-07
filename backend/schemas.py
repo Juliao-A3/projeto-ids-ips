@@ -5,7 +5,7 @@ class UsuarioSchema(BaseModel):
     email: str
     nome: str
     senha: str
-    role: Optional[str] = "admin"
+    role: str = "admin"
     ativo: Optional[bool] = True
 
     class Config:
@@ -34,3 +34,25 @@ class LoginSchema(BaseModel):
 
     class Config:
         from_attributes = True            
+
+class RefreshTokenSchema(BaseModel):
+    refresh_token: str        
+
+class NotificationConfigSchema(BaseModel):
+    smtp_server:        Optional[str]   = None
+    smtp_port:          int             = 587
+    smtp_ssl:           bool            = True
+    smtp_username:      Optional[str]   = None
+    smtp_password:      Optional[str]   = None
+    smtp_enabled:       bool            = False
+    telegram_token:     Optional[str]   = None
+    telegram_chat_id:   Optional[str]   = None
+    telegram_enabled:   bool            = False
+    teams_webhook:      Optional[str]   = None
+    teams_enabled:      bool            = False
+    trigger_critical:   bool            = True
+    trigger_high:       bool            = True
+    trigger_medium:     bool            = False
+
+    class Config:
+        from_attributes = True    

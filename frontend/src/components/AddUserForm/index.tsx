@@ -27,14 +27,33 @@ interface AddUserFormProps {
 export function AddUserForm({ onCancel, onSubmit }: AddUserFormProps) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [role, setRole] = useState('ANALISTA');
+  const [role, setRole] = useState('analista');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [forcePasswordChange, setForcePasswordChange] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit({ name, email, role, password, forcePasswordChange });
+    setError('');
+    setSuccess(false);
+    setLoading(true);
+
+    try {
+      await onSubmit({ name, email, role, password, forcePasswordChange });
+        setSuccess(true);
+        setName('');
+        setEmail('');
+        setRole('analista');
+        setPassword('');
+        setTimeout(() => onCancel(), 1500);
+    } catch (err: any) {
+      setError(err.message || 'Erro ao criar usuário');
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Calcula força da senha (simplificado)
@@ -42,6 +61,18 @@ export function AddUserForm({ onCancel, onSubmit }: AddUserFormProps) {
 
   return (
     <Form onSubmit={handleSubmit}>
+      {error && (
+        <FormGroup style={{ backgroundColor: '#fee', borderLeft: '4px solid #f44', padding: '12px' }}>
+          <span style={{ color: '#d32f2f', fontSize: '14px' }}>✗ {error}</span>
+        </FormGroup>
+      )}
+
+      {success && (
+        <FormGroup style={{ backgroundColor: '#efe', borderLeft: '4px solid #4caf50', padding: '12px' }}>
+          <span style={{ color: '#2e7d32', fontSize: '14px' }}>✓ Usuário criado com sucesso!</span>
+        </FormGroup>
+      )}
+
       <FormGroup>
         <Label>NOME COMPLETO</Label>
         <Input
@@ -50,6 +81,7 @@ export function AddUserForm({ onCancel, onSubmit }: AddUserFormProps) {
           onChange={(e) => setName(e.target.value)}
           placeholder="ex: Roberto Silva"
           required
+          disabled={loading}
         />
       </FormGroup>
 
@@ -61,15 +93,16 @@ export function AddUserForm({ onCancel, onSubmit }: AddUserFormProps) {
           onChange={(e) => setEmail(e.target.value)}
           placeholder="roberto@empresa.com"
           required
+          disabled={loading}
         />
       </FormGroup>
 
       <FormGroup>
         <Label>NÍVEL DE ACESSO</Label>
-        <Select value={role} onChange={(e) => setRole(e.target.value)}>
-          <option value="ADMIN">Administrador</option>
-          <option value="ANALISTA">Analista</option>
-          <option value="OPERADOR">Operador</option>
+        <Select value={role} onChange={(e) => setRole(e.target.value)} disabled={loading}>
+          <option value="admin">Administrador</option>
+          <option value="analista">Analista</option>
+          <option value="operador">Operador</option>
         </Select>
       </FormGroup>
 
@@ -82,8 +115,9 @@ export function AddUserForm({ onCancel, onSubmit }: AddUserFormProps) {
             onChange={(e) => setPassword(e.target.value)}
             placeholder="••••••••••••"
             required
+            disabled={loading}
           />
-          <PasswordToggle onClick={() => setShowPassword(!showPassword)}>
+          <PasswordToggle type='button' onClick={() => !loading && setShowPassword(!showPassword)}>
             {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
           </PasswordToggle>
         </PasswordInputWrapper>
@@ -99,20 +133,12 @@ export function AddUserForm({ onCancel, onSubmit }: AddUserFormProps) {
         )}
       </FormGroup>
 
-      <CheckboxGroup>
-        <ToggleSwitch
-          checked={forcePasswordChange}
-          onChange={setForcePasswordChange}
-        />
-        <span>Forçar troca de senha no primeiro acesso</span>
-      </CheckboxGroup>
-
       <ButtonGroup>
-        <CancelButton type="button" onClick={onCancel}>
+        <CancelButton type="button" onClick={onCancel} disabled={loading}>
           CANCELAR
         </CancelButton>
-        <SubmitButton type="submit">
-          CRIAR USUÁRIO
+        <SubmitButton type="submit" disabled={loading}>
+          {loading ? 'CRIANDO...' : 'CRIAR USUÁRIO'}
         </SubmitButton>
       </ButtonGroup>
     </Form>

@@ -49,16 +49,17 @@ export function Router() {
       <Route
         path="/settings"
         element={
-          <ProtectedRoute allowedRoles={["admin", "analista"]}>
+          <ProtectedRoute allowedRoles={["admin", "analista", "operador"]}>
+            {/* operador removido daqui — só acede ao dashboard */}
             <ConfigLayout />
           </ProtectedRoute>
         }
       >
         <Route path="user" element={<ProtectedRoute allowedRoles={["admin"]}><UserPage /></ProtectedRoute>} />
-        <Route path="ai-model" element={<ProtectedRoute allowedRoles={["admin"]}><AIModelSettings /></ProtectedRoute>} />
-        <Route path="network" element={<ProtectedRoute allowedRoles={["admin"]}><NetworkSettings /></ProtectedRoute>} />
-        <Route path="notifications" element={<NotificationsSettings />} />
-        <Route path="relatorio" element={<ReportsSettings />} />
+        <Route path="ai-model" element={<ProtectedRoute allowedRoles={["admin", "analista"]}><AIModelSettings /></ProtectedRoute>} />
+        <Route path="network" element={<ProtectedRoute allowedRoles={["admin", "analista"]}><NetworkSettings /></ProtectedRoute>} />
+        <Route path="notifications" element={<ProtectedRoute allowedRoles={["admin"]}><NotificationsSettings /></ProtectedRoute>} />
+        <Route path="relatorio" element={<ProtectedRoute allowedRoles={["admin", "analista", "operador"]}><ReportsSettings /></ProtectedRoute>} />
       </Route>
 
     </Routes>

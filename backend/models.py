@@ -1,11 +1,10 @@
-import datetime
 from datetime import datetime, timezone
 from sqlalchemy import JSON, create_engine, Column, String, Integer, Boolean, Float, Enum, ForeignKey, DateTime
 from sqlalchemy.orm import declarative_base
 from enum import Enum as PyEnum
 from sqlalchemy.orm import relationship
 
-#Criar a conexao do seu banco
+
 import os
 from sqlalchemy import create_engine
 
@@ -15,22 +14,8 @@ db_path = os.path.join(BASE_DIR, "database", "banco.db")
 db_path = os.path.abspath(db_path)
 
 engine = create_engine(f"sqlite:///{db_path}")
-#aqui onde devemos passar o link para conectar com a db
 
-#Criar a base do banco de dados
 Base = declarative_base()
-
-#Criar as classes/tabelas do banco
-#Tabela: usuarios (Gestão de Acesso)
-#id: UUID (Chave Primária)
-#nome: String
-#email: String (Único)
-#senha_hash: String (Senha criptografada)
-#role: Enum ('ADMIN', 'ANALISTA', 'OPERADOR')
-#avatar_url: String (Caminho da foto de perfil)
-#status_2fa: Boolean (Se a autenticação de dois fatores está ativa)
-#ultimo_login: Timestamp
-#criado_em: Timestamp
 
 class UserRole(str, PyEnum):
     ADMIN = "admin"
@@ -72,7 +57,7 @@ class LogEvento(Base):
     __tablename__ = 'log_eventos'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    timestamp = Column(DateTime(timezone=True), default=lambda: datetime.now(datetime.timezone.utc))
+    timestamp = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     src_ip = Column('ip_origem', String(45), nullable=False)
     dest_ip = Column('ip_destino', String(45))
     src_port = Column('porta_origem', Integer)
@@ -85,7 +70,7 @@ class LogEvento(Base):
     analises = relationship("AnaliseIA", backref="evento", cascade="all, delete")
     alertas = relationship("Alerta", backref="evento", cascade="all, delete")
 
-    def __init__(self, src_ip, dest_ip, src_port, dest_port, protocolo, assinatura=None, severidade=None):
+    def __init__(self, src_ip, dest_ip, src_port, dest_port, protocolo, assinatura=None, severidade=None, status=Status.PENDENTE):
         self.src_ip = src_ip
         self.dest_ip = dest_ip
         self.src_port = src_port
@@ -93,6 +78,10 @@ class LogEvento(Base):
         self.protocolo = protocolo
         self.assinatura = assinatura
         self.severidade = severidade
+        self.status = status
+        self.timestamp = datetime.now(timezone.utc)
+        self.analises = []
+        self.alertas = []
 
 class Alerta(Base):
     __tablename__ = 'alertas'
@@ -107,7 +96,7 @@ class Alerta(Base):
 
     def __init__(self, evento_id, ip_origem, ip_destino, protocolo, porta_de_comunicacao):
         self.evento_id = evento_id
-        self.criado_em = datetime.now(datetime.timezone.utc) #
+        self.criado_em = datetime.now(timezone.utc)
         self.ip_origem = ip_origem
         self.ip_destino = ip_destino
         self.protocolo = protocolo
@@ -142,12 +131,76 @@ class IpsBloqueados(Base):
     alert_id = Column(Integer, ForeignKey('alertas.id'), nullable=False) # para saber qual alerta gerou o bloqueio
     ip_bloqueado = Column(String(45), nullable=False, unique=True)
     motivo = Column(String)
-    bloqueado_em = Column(DateTime(timezone=True), default=lambda: datetime.now(datetime.timezone.utc))
+    bloqueado_em = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     def __init__(self, bloqueado_por, ip_bloqueado, motivo, bloqueado_em):
         self.bloqueado_por = bloqueado_por
         self.ip_bloqueado = ip_bloqueado
         self.motivo = motivo
         self.bloqueado_em = bloqueado_em
+
+class NotificationConfig(Base):
+    __tablename__ = "notification_config"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    email_provider      = Column(String, default="gmail")
+    smtp_server = Column(String, nullable=True)
+    smtp_port = Column(Integer, default=587)
+    smtp_ssl = Column(Boolean, default=True)
+    smtp_username = Column(String, nullable=True)
+    smtp_password = Column(String, nullable=True)
+    smtp_enabled = Column(Boolean, default=False)
+    
+    telegram_token = Column(String, nullable=True)
+    telegram_chat_id = Column(String, nullable=True)
+    telegram_enabled = Column(Boolean, default=False)
+    
+    # Aqui é para  Microsoft Teams
+    teams_webhook = Column(String, nullable=True)
+    teams_enabled = Column(Boolean, default=False)
+    
+    trigger_critical = Column(Boolean, default=True)
+    trigger_high = Column(Boolean, default=True)
+    trigger_medium = Column(Boolean, default=False)
+    atualizado_em = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    def __init__(
+    self,        
+    email_provider="gmail", 
+    smtp_server=None,
+    smtp_port=587,
+    smtp_ssl=True,
+    smtp_username=None,
+    smtp_password=None,
+    smtp_enabled=False,
+    telegram_token=None,
+    telegram_chat_id=None,
+    telegram_enabled=False,
+    teams_webhook=None,
+    teams_enabled=False,
+    trigger_critical=True,
+    trigger_high=True,
+    trigger_medium=False,
+):
+        
+        self.smtp_server = smtp_server
+        self.email_provider = email_provider
+        self.smtp_port = smtp_port
+        self.smtp_ssl = smtp_ssl
+        self.smtp_username = smtp_username
+        self.smtp_password = smtp_password
+        self.smtp_enabled = smtp_enabled
+        self.telegram_token = telegram_token
+        self.telegram_chat_id = telegram_chat_id
+        self.telegram_enabled = telegram_enabled
+        self.teams_webhook = teams_webhook
+        self.teams_enabled = teams_enabled
+        self.trigger_critical = trigger_critical
+        self.trigger_high = trigger_high
+        self.trigger_medium = trigger_medium
+        self.atualizado_em = datetime.now(timezone.utc)
+
+Base.metadata.create_all(engine)
 
 #Executa a criacao dos metadados do seu banco de seu banco (criar efetivamente o banco de dados)

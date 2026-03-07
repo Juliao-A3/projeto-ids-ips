@@ -158,13 +158,104 @@ export const UserContent = styled.div `
     margin-right: 8px;
 `
 
-export const UserContainer = styled.div `
-    align-items: center;
-    display: flex;
-    padding: 24px;
-    button {
-        border: none;
-        cursor: pointer;
-        background-color: ${(props) => props.theme.colors.surface};
-    }
-`
+export const UserContainer = styled.div`
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+`;
+
+export const RoleBadge = styled.span`
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.15em;
+  color: ${({ theme }) => theme.colors.primary};
+  background: ${({ theme }) => theme.colors.primary}18;
+  border: 1px solid ${({ theme }) => theme.colors.primary}44;
+  border-radius: 20px;
+  padding: 2px 8px;
+  text-transform: uppercase;
+`;
+
+export const DropdownMenu = styled.div<{ $open: boolean }>`
+  position: absolute;
+  top: calc(100% + 12px);
+  right: 0;
+  width: 220px;
+  background: ${({ theme }) => theme.colors.surface};
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  opacity: ${({ $open }) => ($open ? 1 : 0)};
+  pointer-events: ${({ $open }) => ($open ? "all" : "none")};
+  transform: ${({ $open }) => ($open ? "translateY(0)" : "translateY(-8px)")};
+  transition: all 0.2s ease;
+  z-index: 100;
+`;
+
+export const DropdownHeader = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px;
+  background: ${({ theme }) => theme.colors.background};
+`;
+
+export const DropdownAvatar = styled.div`
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  background: ${({ theme }) => theme.colors.primary}22;
+  border: 1px solid ${({ theme }) => theme.colors.primary}44;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Orbitron', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  color: ${({ theme }) => theme.colors.primary};
+  flex-shrink: 0;
+`;
+
+export const DropdownUserInfo = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+`;
+
+export const DropdownName = styled.span`
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  color: ${({ theme }) => theme.colors.text.primary};
+`;
+
+export const DropdownSeparator = styled.div`
+  height: 1px;
+  background: ${({ theme }) => theme.colors.border};
+`;
+
+export const DropdownItem = styled.button<{ $danger?: boolean }>`
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: ${({ theme, $danger }) => $danger ? theme.colors.danger : theme.colors.text.secondary};
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-align: left;
+  transition: all 0.15s;
+
+  &:hover {
+    background: ${({ theme, $danger }) =>
+      $danger ? `${theme.colors.danger}12` : `${theme.colors.primary}12`};
+    color: ${({ theme, $danger }) =>
+      $danger ? theme.colors.danger : theme.colors.primary};
+  }
+`;
