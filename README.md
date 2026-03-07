@@ -18,7 +18,7 @@ cd C:\Users\Herder Ernesto Ngola\Desktop\vscode\projeto-ids-ips\backend
 .\install_backend.ps1
 
 # ativar venv manualmente (se necessário)
-. .venv\Scripts\Activate.ps1
+.\.venv\Scripts\Activate.ps1
 
 # executar API (a partir da raiz do repositório)
 cd ..
