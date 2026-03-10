@@ -21,7 +21,7 @@ import {
 import { api } from "../../services/api";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "../../contexts/AuthContext"; // <- import do contexto
+import { useAuth } from "../../contexts/AuthContext";
 
 const timeStr = new Date().toTimeString().slice(0, 8);
 const tzStr = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -32,11 +32,11 @@ type FormData = {
 };
 
 export default function Login() {
-  const [showPass, setShowPass] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
-
-  const [, setTick] = useState(0);
+  const [showPass, setShowPass]   = useState(false);
+  const [loading, setLoading]     = useState(false);
+  const [success, setSuccess]     = useState(false);
+  const [apiError, setApiError]   = useState('');
+  const [, setTick]               = useState(0);
 
   useEffect(() => {
     const id = setInterval(() => setTick(t => t + 1), 1000);
@@ -47,7 +47,6 @@ export default function Login() {
   const navigate = useNavigate();
   const { setUser, user } = useAuth();
 
-  // Redireciona se já estiver logado
   useEffect(() => {
     if (user) navigate("/", { replace: true });
   }, [user]);
@@ -55,21 +54,20 @@ export default function Login() {
   const onSubmit = async (data: FormData) => {
     try {
       setLoading(true);
+      setApiError('');
 
       const response = await api.post("/auth/login", {
         email: data.email,
         senha: data.password,
       });
 
-      console.log("Login response:", response.data);
-
       localStorage.setItem("access_token", response.data.access_token);
       localStorage.setItem("refresh_token", response.data.refresh_token);
 
       const userData = response.data.user;
       localStorage.setItem("user_name", userData.name);
-      localStorage.setItem("user_role", userData.role);
-      
+      localStorage.setItem("user_role", userData.role.toLowerCase());
+
       const initials = userData.name
         .trim()
         .split(/\s+/)
@@ -78,24 +76,27 @@ export default function Login() {
         .join("")
         .toUpperCase()
         .slice(0, 2) || "U";
-      
-      localStorage.setItem("user_role", userData.role.toLowerCase());
 
       setUser({
         name: userData.name,
-        role: userData.role.toLowerCase(), // normaliza aqui
+        role: userData.role.toLowerCase(),
         initials
       });
 
       setSuccess(true);
+      setTimeout(() => navigate("/", { replace: true }), 500);
 
-      setTimeout(() => {
-        navigate("/", { replace: true });
-      }, 500);
+    } catch (error: any) {
+      const status = error.response?.status;
+      const detail = error.response?.data?.detail;
 
-    } catch (error) {
-      console.error("Login error:", error);
-      alert("Email ou senha inválidos");
+      if (status === 403) {
+        setApiError('Conta desativada. Contacta o administrador.');
+      } else if (status === 401) {
+        setApiError('Email ou senha inválidos.');
+      } else {
+        setApiError(detail || 'Erro ao conectar ao servidor.');
+      }
     } finally {
       setLoading(false);
     }
@@ -139,6 +140,7 @@ export default function Login() {
                 {...register("email", {
                   required: "Campo obrigatório",
                   pattern: { value: /\S+@\S+\.\S+/, message: "Email inválido" },
+                  onChange: () => setApiError(''),
                 })}
               />
             </InputRow>
@@ -166,6 +168,7 @@ export default function Login() {
                 {...register("password", {
                   required: "Campo obrigatório",
                   minLength: { value: 6, message: "Mínimo 6 caracteres" },
+                  onChange: () => setApiError(''),
                 })}
               />
               <EyeBtn type="button" onClick={() => setShowPass(v => !v)} tabIndex={-1}>
@@ -177,6 +180,23 @@ export default function Login() {
             </InputRow>
             {errors.password && <ErrorMsg>⚠ {errors.password.message}</ErrorMsg>}
           </Field>
+
+          {/* Erro da API */}
+          {apiError && (
+            <ErrorMsg style={{
+              display: 'block',
+              padding: '10px 14px',
+              background: '#ef444412',
+              border: '1px solid #ef444444',
+              borderLeft: '3px solid #ef4444',
+              borderRadius: '4px',
+              marginBottom: '12px',
+              fontSize: '11px',
+              textAlign: 'center',
+            }}>
+              ⚠ {apiError}
+            </ErrorMsg>
+          )}
 
           <SubmitBtn
             type="submit"
@@ -190,7 +210,7 @@ export default function Login() {
           <RegisterRow>
             <RegisterText>Não tens conta?</RegisterText>
             <RegisterLink href="/setup">Solicitar acesso</RegisterLink>
-          </RegisterRow>    
+          </RegisterRow>
         </Form>
 
         <RestrictedBadge>

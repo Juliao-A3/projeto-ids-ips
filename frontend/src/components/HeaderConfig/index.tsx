@@ -96,7 +96,7 @@ export function HeaderConfig() {
                             {/* Ver Perfil */}
                             <DropdownItem onClick={(e) => {
                                 e.stopPropagation();
-                                navigate('/settings/user');
+                                navigate('/settings/profile');
                                 setDropdownOpen(false);
                             }}>
                                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">

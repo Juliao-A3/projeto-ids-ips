@@ -11,6 +11,7 @@ import { NotificationsSettings } from "./pages/NotificationsSettings";
 import { ReportsSettings } from "./pages/ReportsSettings";
 import Setup from "./pages/Setup";
 import { UserPage } from "./pages/UserPage";
+import { UserProfile } from "./pages/UserProfile";
 
 export function Router() {
   return (
@@ -55,6 +56,7 @@ export function Router() {
           </ProtectedRoute>
         }
       >
+        <Route path="profile" element={<ProtectedRoute allowedRoles={["admin", "analista", "operador"]}><UserProfile /></ProtectedRoute>} />
         <Route path="user" element={<ProtectedRoute allowedRoles={["admin"]}><UserPage /></ProtectedRoute>} />
         <Route path="ai-model" element={<ProtectedRoute allowedRoles={["admin", "analista"]}><AIModelSettings /></ProtectedRoute>} />
         <Route path="network" element={<ProtectedRoute allowedRoles={["admin", "analista"]}><NetworkSettings /></ProtectedRoute>} />

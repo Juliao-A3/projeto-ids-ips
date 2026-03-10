@@ -39,7 +39,7 @@ export function useNetwork() {
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  const fetchInterfaces = useCallback(() => {
+  const fetchInterfaces = useCallback(() => { 
     api.get('/network/interfaces')
       .then(r => setInterfaces(r.data))
       .catch(() => setError('Erro ao carregar interfaces'));

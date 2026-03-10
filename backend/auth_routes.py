@@ -107,8 +107,11 @@ async def login(dados: LoginSchema, session: Session = Depends(get_session)):
     if not usuario:
         raise HTTPException(status_code=401, detail='Email ou senha inválidos')
     
-    access_token = criar_token(usuario.id)
-    refresh_token = criar_token(usuario.id, duracao_token=timedelta(minutes=25))
+    if not usuario.ativo:
+        raise HTTPException(status_code=403, detail='Conta desativada. Contacta o administrador.')
+    
+    access_token  = criar_token(usuario.id)
+    refresh_token = criar_token(usuario.id, duracao_token=timedelta(days=7))
     
     return {
         'access_token': access_token,
@@ -136,6 +139,46 @@ async def listar_usuarios(
             'criado_em': u.criado_em
         } for u in usuarios
     ]
+
+# Editar role do utilizador
+@auth_router.put('/users/{user_id}')
+async def editar_usuario(
+    user_id: int,
+    dados: dict,
+    usuario: Usuario = Depends(require_role(["admin"])),
+    session: Session = Depends(get_session)
+):
+    user = session.query(Usuario).filter(Usuario.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail='Utilizador não encontrado')
+    if user.id == usuario.id:
+        raise HTTPException(status_code=400, detail='Não podes editar o teu próprio role')
+    
+    if 'role' in dados:
+        user.role = dados['role']
+    if 'ativo' in dados:
+        user.ativo = dados['ativo']
+    
+    session.commit()
+    return {"message": "Utilizador atualizado com sucesso"}
+
+
+# Apagar utilizador
+@auth_router.delete('/users/{user_id}')
+async def apagar_usuario(
+    user_id: int,
+    usuario: Usuario = Depends(require_role(["admin"])),
+    session: Session = Depends(get_session)
+):
+    user = session.query(Usuario).filter(Usuario.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail='Utilizador não encontrado')
+    if user.id == usuario.id:
+        raise HTTPException(status_code=400, detail='Não podes apagar a tua própria conta')
+    
+    session.delete(user)
+    session.commit()
+    return {"message": f"Utilizador {user.nome} apagado com sucesso"}    
 
 @auth_router.post('/refresh')
 async def refresh_token(dados: RefreshTokenSchema, session: Session = Depends(get_session)):
@@ -172,3 +215,47 @@ async def login_token(
         "access_token": access_token,
         "token_type": "bearer"
     }        
+
+@auth_router.get('/me')
+async def get_perfil(
+    usuario: Usuario = Depends(verificar_token),
+    session: Session = Depends(get_session)
+):
+    return {
+        "id":         usuario.id,
+        "nome":       usuario.nome,
+        "email":      usuario.email,
+        "role":       usuario.role.value,
+        "ativo":      usuario.ativo,
+        "criado_em":  usuario.criado_em.isoformat() if usuario.criado_em else None,
+    }
+
+
+@auth_router.put('/me')
+async def editar_perfil(
+    dados: dict,
+    usuario: Usuario = Depends(verificar_token),
+    session: Session = Depends(get_session)
+):
+    if 'nome' in dados and dados['nome'].strip():
+        usuario.nome = dados['nome'].strip()
+    
+    if 'email' in dados and dados['email'].strip():
+        # verifica se email já existe noutro utilizador
+        existente = session.query(Usuario).filter(
+            Usuario.email == dados['email'],
+            Usuario.id != usuario.id
+        ).first()
+        if existente:
+            raise HTTPException(status_code=400, detail='Email já está em uso')
+        usuario.email = dados['email'].strip()
+    
+    session.commit()
+
+    return {
+        "id":        usuario.id,
+        "nome":      usuario.nome,
+        "email":     usuario.email,
+        "role":      usuario.role.value,
+        "criado_em": usuario.criado_em.isoformat() if usuario.criado_em else None,
+    }    

@@ -24,8 +24,8 @@ def get_system_metrics() -> dict:
 
 def calcular_uptime() -> str:
     uptime_seconds = int(time.time() - start_time)
-    days    = uptime_seconds // 86400
-    hours   = (uptime_seconds % 86400) // 3600
+    days = uptime_seconds // 86400
+    hours = (uptime_seconds % 86400) // 3600
     minutes = (uptime_seconds % 3600) // 60
     return f"{days}d {hours:02d}h {minutes:02d}m"
 

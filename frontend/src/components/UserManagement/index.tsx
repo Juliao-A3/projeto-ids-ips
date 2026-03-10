@@ -9,10 +9,7 @@ import {
   Header,
   Title,
   AddButton,
-  Content,
-  Footer,
-  RestoreButton,
-  SaveButton
+  Content
 } from './styles';
 
 export function UserManagement() {
