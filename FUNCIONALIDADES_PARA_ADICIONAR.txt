@@ -1,0 +1,70 @@
+================================================================================
+FUNCIONALIDADES A ADICIONAR - AEGIS IDS
+================================================================================
+
+1. BACKEND - ROTAS A CRIAR (6 ARQUIVOS DA SCAPY_MODULE)
+--------------------------------------------------------------------------------
+• sniffer_realtime.py      → /sniffer/* (iniciar, pausar, reboot, status, ws)
+• estatisticas_modelo.py    → /sniffer/ia/estatisticas, /sniffer/ia/modelo
+• inspecionar_modelo.py     → /sniffer/ia/inspecionar, /sniffer/ia/modelos
+• train_new_model.py        → /sniffer/ia/treinar, /sniffer/ia/treino/status
+• testar_modelo.py          → /sniffer/testar/upload, /sniffer/testar/resultado/{id}
+• testar_com_pastas.py      → /sniffer/testar/pasta, /sniffer/testar/historico
+
+TOTAL: ~25 endpoints
+
+
+2. FRONTEND - NOVAS PÁGINAS A CRIAR (3)
+--------------------------------------------------------------------------------
+• Análise Estática          → /dashboard/analise
+• Gestão de IA              → /dashboard/ia
+• Notificações (melhorar)   → /dashboard/notificacoes
+
+
+3. FRONTEND - NOVOS COMPONENTES POR PÁGINA
+--------------------------------------------------------------------------------
+ANÁLISE ESTÁTICA:
+   - Upload de PCAP (botão + drag & drop)
+   - Dropdown modelo + input limite
+   - Botão "Analisar"
+   - Tabela de resultados (pacotes, estatísticas)
+   - Botão "Exportar CSV"
+   - Cards "Pasta Normal" e "Pasta Ataques" com contadores
+   - Tabela de histórico de testes
+
+GESTÃO DE IA:
+   - Card "Modelo Atual" (nome, acurácia 85%, data, features)
+   - Lista de features (14 itens)
+   - Card "Treinar Novo Modelo" (botão + barra de progresso)
+   - Dropdown para inspecionar modelos + botão
+   - Tabela com histórico de sessões
+
+NOTIFICAÇÕES:
+   - Checkboxes para níveis (Crítico, Alto, Médio)
+   - Formulário Email (conta, senha, botão testar)
+   - Formulário Telegram (token, chat ID, botão testar)
+   - Formulário Teams (webhook URL, botão testar)
+   - Botões "Restaurar Padrões" e "Salvar Alterações"
+
+
+4. NOVOS DADOS QUE VÃO APARECER
+--------------------------------------------------------------------------------
+• Acurácia do modelo (85.4%)              → Página IA
+• Features usadas (14)                     → Página IA
+• Histórico de treinos                      → Página IA
+• Resultados de testes (upload/pasta)       → Análise Estática
+• Comparação normal vs ataques               → Análise Estática
+• Status das notificações (85% otimizado)   → Notificações
+
+
+5. TOTAL DE NOVOS ELEMENTOS
+--------------------------------------------------------------------------------
+• Endpoints:        ~25
+• Páginas:          3
+• Componentes:      ~15
+• Botões:           ~25
+• Tabelas:          4
+• Gráficos:         2
+• Formulários:      3
+
+================================================================================
