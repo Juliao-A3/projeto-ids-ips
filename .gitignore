@@ -54,7 +54,7 @@ Thumbs.db
 # ============================================
 
 # Opcional: descomenta se NÃO quiseres subir dados
- data/
+# data/
 # models/
 # *.pcap
 #*.pcapng
