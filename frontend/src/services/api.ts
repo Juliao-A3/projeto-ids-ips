@@ -1,18 +1,21 @@
 import axios from "axios";
 
 export const api = axios.create({
-  baseURL: "http://localhost:8000"
+  baseURL: "http://localhost:8000",
+  timeout: 15000,
 });
 
 const IGNORAR_LOGOUT = [
+  "/auth/login",
   "/notifications/test",
   "/notifications/config",
   "/auth/refresh",
 ];
 
 api.interceptors.request.use((config) => {
+  const isAuthLogin = config.url?.includes("/auth/login");
   const token = localStorage.getItem("access_token");
-  if (token) {
+  if (token && !isAuthLogin) {
     config.headers.Authorization = `Bearer ${token}`;
   }
   return config;

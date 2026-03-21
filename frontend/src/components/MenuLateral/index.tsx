@@ -12,6 +12,8 @@ const MENU_ITEMS = [
   // { label: 'MOTOR SURICATA', path: '/settings/suricata', icon: <MdDns size={18}/> },
   { label: 'MODELO DE IA', path: '/settings/ai-model', icon: <MdPsychology size={18}/> },
   { label: 'REDE', path: '/settings/network', icon: <MdHub size={18}/> },
+  { label: 'ANÁLISE ESTÁTICA', path: '/settings/analise', icon: <MdAssessment size={18}/> },
+  { label: 'GESTÃO DE IA', path: '/settings/gestao-ia', icon: <MdPsychology size={18}/> },
   { label: 'NOTIFICAÇÕES', path: '/settings/notifications', icon: <MdNotifications size={18}/> },
   { label: 'RELATORIO', path: '/settings/relatorio', icon: <MdAssessment size={18}/>}
 ];

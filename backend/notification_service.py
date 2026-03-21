@@ -22,31 +22,31 @@ def deve_notificar(config: NotificationConfig, severidade: str) -> bool:
 
 def montar_mensagem_email(evento: LogEvento) -> str:
     return f"""
-    🚨 AEGIS IDS/IPS — ALERTA DE SEGURANÇA
+    AEGIS IDS/IPS - ALERTA DE SEGURANCA
 
-    Severidade : {evento.severidade.value.upper()}
-    IP Origem  : {evento.src_ip}
-    IP Destino : {evento.dest_ip}
-    Protocolo  : {evento.protocolo}
-    Porta      : {evento.dest_port}
-    Assinatura : {evento.assinatura or 'N/A'}
-    Timestamp  : {evento.timestamp}
-    Status     : {evento.status.value}
+    Severidade: {evento.severidade.value.upper()}
+    IP Origem: {evento.src_ip}
+    IP Destino: {evento.dest_ip}
+    Protocolo: {evento.protocolo}
+    Porta: {evento.dest_port}
+    Assinatura: {evento.assinatura or 'N/A'}
+    Timestamp: {evento.timestamp}
+    Status: {evento.status.value}
 
-    Acede ao painel AEGIS para mais detalhes.
+    Aceda ao painel AEGIS para mais detalhes.
     """
 
 
 def montar_mensagem_telegram(evento: LogEvento) -> str:
     return (
-        f"🚨 *AEGIS ALERTA*\n\n"
-        f"*Severidade:* {evento.severidade.value.upper()}\n"
-        f"*IP Origem:* `{evento.src_ip}`\n"
-        f"*IP Destino:* `{evento.dest_ip}`\n"
-        f"*Protocolo:* {evento.protocolo}\n"
-        f"*Porta:* {evento.dest_port}\n"
-        f"*Assinatura:* {evento.assinatura or 'N/A'}\n"
-        f"*Timestamp:* {evento.timestamp}"
+        f"AEGIS ALERTA\n\n"
+        f"Severidade: {evento.severidade.value.upper()}\n"
+        f"IP Origem: {evento.src_ip}\n"
+        f"IP Destino: {evento.dest_ip}\n"
+        f"Protocolo: {evento.protocolo}\n"
+        f"Porta: {evento.dest_port}\n"
+        f"Assinatura: {evento.assinatura or 'N/A'}\n"
+        f"Timestamp: {evento.timestamp}"
     )
 
 
@@ -68,10 +68,10 @@ def enviar_email(config: NotificationConfig, evento: LogEvento):
 
     try:
         msg = MIMEMultipart()
-        msg["Subject"] = f"[AEGIS] Alerta {evento.severidade.value.upper()} — {evento.src_ip}"
+        msg["Subject"] = f"[AEGIS] Alerta {evento.severidade.value.upper()} - {evento.src_ip}"
         msg["From"]    = config.smtp_username
         msg["To"]      = config.smtp_username
-        msg.attach(MIMEText(montar_mensagem_email(evento), "plain"))
+        msg.attach(MIMEText(montar_mensagem_email(evento), "plain", "us-ascii"))
 
         with smtplib.SMTP(servidor, 587) as server:
             server.starttls()
@@ -85,17 +85,17 @@ def enviar_email(config: NotificationConfig, evento: LogEvento):
 
 async def enviar_telegram(config: NotificationConfig, evento: LogEvento):
     """Envia mensagem Telegram"""
-    if not config.telegram_enabled or not config.telegram_token:
+    if not config.telegram_enabled or not config.telegram_token or not config.telegram_chat_id:
         return
 
     try:
         url = f"https://api.telegram.org/bot{config.telegram_token}/sendMessage"
         async with httpx.AsyncClient() as client:
-            await client.post(url, json={
+            response = await client.post(url, json={
                 "chat_id":    config.telegram_chat_id,
-                "text":       montar_mensagem_telegram(evento),
-                "parse_mode": "Markdown"
+                "text":       montar_mensagem_telegram(evento)
             })
+            response.raise_for_status()
         print(f"[AEGIS] Telegram enviado")
     except Exception as e:
         print(f"[AEGIS] Erro ao enviar Telegram: {e}")
@@ -108,9 +108,10 @@ async def enviar_teams(config: NotificationConfig, evento: LogEvento):
 
     try:
         async with httpx.AsyncClient() as client:
-            await client.post(config.teams_webhook, json={
+            response = await client.post(config.teams_webhook, json={
                 "text": montar_mensagem_email(evento)
             })
+            response.raise_for_status()
         print(f"[AEGIS] Teams enviado")
     except Exception as e:
         print(f"[AEGIS] Erro ao enviar Teams: {e}")
@@ -131,3 +132,4 @@ async def notificar_alerta(evento: LogEvento, session: Session):
     # telegram e teams (assíncrono)
     await enviar_telegram(config, evento)
     await enviar_teams(config, evento)
+    

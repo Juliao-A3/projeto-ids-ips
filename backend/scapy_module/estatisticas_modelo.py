@@ -105,11 +105,11 @@ def analisar_modelo(caminho_modelo=None):
         for sessao in sessoes[-5:]:
             inicio = sessao.get('inicio', '')[:16]
             resumo = sessao.get('resumo', {})
-            print(f"   📅 {inicio}")
-            print(f"      📦 Pacotes: {resumo.get('pacotes', 0)}")
-            print(f"      ⚠️ Anomalias: {resumo.get('anomalias', 0)}")
-            print(f"      🔒 Bloqueios: {resumo.get('bloqueios', 0)}")
-            print(f"      🚫 IPs: {resumo.get('ips', 0)}")
+            print(f"📅 {inicio}")
+            print(f"📦 Pacotes: {resumo.get('pacotes', 0)}")
+            print(f"⚠️ Anomalias: {resumo.get('anomalias', 0)}")
+            print(f"🔒 Bloqueios: {resumo.get('bloqueios', 0)}")
+            print(f"🚫 IPs: {resumo.get('ips', 0)}")
     
     print("\n" + "="*80)
 
