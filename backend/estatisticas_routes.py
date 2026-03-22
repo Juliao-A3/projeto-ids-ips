@@ -19,13 +19,16 @@ estatisticas_router = APIRouter(prefix="/sniffer/ia", tags=["IA Estatísticas"])
 MODELS_DIR = PROJECT_PATH / "models"
 
 def get_modelo_recente():
-    """Retorna o modelo mais recente disponível."""
+    # ← primeiro verifica se existe best_model.pkl (modelo ativado manualmente)
+    best = MODELS_DIR / "best_model.pkl" #Depois mudar para modelo principal do sistema
+    if best.exists():
+        return best
+    
+    # se não, usa o mais recente por data
     modelos = list(MODELS_DIR.glob("modelo_scapy_*.pkl"))
     if modelos:
         return max(modelos, key=lambda x: x.stat().st_mtime)
-    best = MODELS_DIR / "best_model.pkl"
-    if best.exists():
-        return best
+    
     return None
 
 
@@ -97,15 +100,26 @@ async def get_estatisticas(
     }
 
 
+import json
+
 @estatisticas_router.get("/modelo")
 async def get_modelo_info(
     usuario = Depends(require_role(["admin", "analista"]))
 ):
-    """Informação resumida do modelo ativo."""
     modelo_path = get_modelo_recente()
-
     if not modelo_path:
         raise HTTPException(status_code=404, detail="Nenhum modelo encontrado.")
+
+    # ← lê o nome original se existir
+    nome_real = modelo_path.name
+    ref_path  = MODELS_DIR / "modelo_ativo.json"
+    if ref_path.exists():
+        try:
+            with open(ref_path, 'r') as f:
+                ref = json.load(f)
+                nome_real = ref.get("nome", modelo_path.name)
+        except:
+            pass
 
     try:
         with open(modelo_path, 'rb') as f:
@@ -115,7 +129,7 @@ async def get_modelo_info(
 
     if isinstance(modelo_data, dict):
         return {
-            "nome":        modelo_path.name,
+            "nome":        nome_real,  # ← nome original
             "data_treino": modelo_data.get("data_treino", "Desconhecida"),
             "acuracia":    modelo_data.get("acuracia", None),
             "versao":      modelo_data.get("versao", "1.0"),
@@ -124,7 +138,8 @@ async def get_modelo_info(
         }
     else:
         return {
-            "nome":       modelo_path.name,
+            "nome":       nome_real,
             "tipo":       type(modelo_data).__name__,
             "n_features": getattr(modelo_data, "n_features_in_", None),
+            "features":   [],
         }

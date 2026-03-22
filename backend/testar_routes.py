@@ -20,7 +20,7 @@ MODELS_DIR   = PROJECT_PATH / "models"
 UPLOAD_DIR   = PROJECT_PATH / "data" / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-# ── Guarda resultados em memória ─────────────────────────────
+# ── Guarda resultados em memória 
 _resultados: dict = {}
 
 
@@ -32,7 +32,7 @@ def get_modelo_recente():
     return best if best.exists() else None
 
 
-# ── ROTAS ────────────────────────────────────────────────────
+# ── ROTAS 
 
 @testar_router.post("/testar/upload")
 async def upload_e_testar(

@@ -1,15 +1,15 @@
 import {
   Container, Title, Grid, Card, FullCard, CardTitle,
   InfoRow, InfoLabel, InfoValue, AccuracyBar, AccuracyFill,
-    Label, Select, InputNum, Btn, ProgressBar, ProgressFill,
-    FeatureList, FeatureItem, Table, Th, Td, Badge,
+  Label, Select, InputNum, Btn, ProgressBar, ProgressFill,
+  FeatureList, FeatureItem, Table, Th, Td, Badge,
   ErrorMsg,
 } from './styles';
 import { useState } from 'react';
-import { Brain, RefreshCw, Search, Play } from 'lucide-react';
+import { Brain, RefreshCw, Search, Play, CheckCircle } from 'lucide-react';
 import { useGestaoIA } from '../../../hooks/useGestaoIA';
+import { api } from '../../services/api';
 
-// ── Componente ────────────────────────────────────────────────────
 export function GestaoIA() {
   const {
     modelo, modelos, estatisticas, treino, inspecao,
@@ -17,7 +17,9 @@ export function GestaoIA() {
     fetchModelo, fetchEstatisticas, inspecionarModelo, iniciarTreino,
   } = useGestaoIA();
 
-  const [modeloInsp, setModeloInsp] = useState('');
+  const [modeloInsp, setModeloInsp]     = useState('');
+  const [ativando, setAtivando]         = useState(false);
+  const [ativarMsg, setAtivarMsg]       = useState('');
   const [treinarConfig, setTreinarConfig] = useState({
     origem:        'logs',
     contamination: 0.15,
@@ -31,6 +33,23 @@ export function GestaoIA() {
     ? Math.round(estatisticas.modelo.acuracia * 100)
     : 0;
 
+  const handleAtivarModelo = async () => {
+    const nomeModelo = modeloInsp || inspecao?.nome;
+    if (!nomeModelo) return;
+    try {
+      setAtivando(true);
+      setAtivarMsg('');
+      await api.post('/sniffer/modelo/ativar', { nome: nomeModelo });
+      setAtivarMsg(`✓ Modelo ${nomeModelo} ativado com sucesso!`);
+      fetchModelo();
+      setTimeout(() => setAtivarMsg(''), 4000);
+    } catch (err: any) {
+      setAtivarMsg(`⚠ ${err.response?.data?.detail || 'Erro ao ativar modelo'}`);
+    } finally {
+      setAtivando(false);
+    }
+  };
+
   return (
     <Container>
       <Title>GESTÃO DE IA</Title>
@@ -38,7 +57,7 @@ export function GestaoIA() {
       {error && <ErrorMsg>⚠ {error}</ErrorMsg>}
 
       <Grid>
-        {/* Modelo Atual */}
+        {/* ── Modelo Atual ── */}
         <Card>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <CardTitle style={{ margin: 0 }}>MODELO ATUAL</CardTitle>
@@ -89,21 +108,9 @@ export function GestaoIA() {
             <InfoLabel>TAMANHO</InfoLabel>
             <InfoValue>{estatisticas?.modelo?.tamanho_kb || 0} KB</InfoValue>
           </InfoRow>
-
-          {/* Lista de Features */}
-          {(modelo?.features?.length || 0) > 0 && (
-            <div style={{ marginTop: 16 }}>
-              <Label>FEATURES USADAS ({modelo?.features?.length})</Label>
-              <FeatureList>
-                {modelo?.features?.map((f, i) => (
-                  <FeatureItem key={i}>{f}</FeatureItem>
-                ))}
-              </FeatureList>
-            </div>
-          )}
         </Card>
 
-        {/* Treinar Novo Modelo */}
+        {/* ── Treinar Novo Modelo ── */}
         <Card>
           <CardTitle>TREINAR NOVO MODELO</CardTitle>
 
@@ -144,7 +151,6 @@ export function GestaoIA() {
             {treinando ? 'A TREINAR...' : 'INICIAR TREINO'}
           </Btn>
 
-          {/* Progresso do treino */}
           {treino && (
             <div style={{ marginTop: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
@@ -172,14 +178,14 @@ export function GestaoIA() {
           )}
         </Card>
 
-        {/* Inspecionar Modelos */}
+        {/* ── Inspecionar + Ativar Modelo ── */}
         <Card>
           <CardTitle>INSPECIONAR MODELO</CardTitle>
 
           <Label>SELECIONA MODELO</Label>
           <Select value={modeloInsp} onChange={e => setModeloInsp(e.target.value)}>
             <option value="">Modelo mais recente</option>
-            {modelos.map((m, i) => (
+            {modelos.map((m: any, i: number) => (
               <option key={i} value={m.nome}>{m.nome}</option>
             ))}
           </Select>
@@ -202,11 +208,47 @@ export function GestaoIA() {
                   </InfoValue>
                 </InfoRow>
               )}
+
+              {/* ── Botão Ativar ── */}
+              <div style={{ marginTop: 12 }}>
+                <Btn
+                  onClick={handleAtivarModelo}
+                  disabled={ativando}
+                  $variant="success"
+                  style={{ width: '100%', justifyContent: 'center' }}
+                >
+                  <CheckCircle size={14} />
+                  {ativando ? 'A ATIVAR...' : 'ATIVAR ESTE MODELO'}
+                </Btn>
+
+                {ativarMsg && (
+                  <div style={{
+                    marginTop: 8, padding: '8px 12px',
+                    background: ativarMsg.startsWith('✓')
+                      ? 'rgba(0,200,83,0.1)' : 'rgba(239,68,68,0.1)',
+                    border: `1px solid ${ativarMsg.startsWith('✓') ? 'rgba(0,200,83,0.3)' : 'rgba(239,68,68,0.3)'}`,
+                    borderRadius: 6,
+                    fontFamily: "'Share Tech Mono', monospace",
+                    fontSize: 10,
+                    color: ativarMsg.startsWith('✓') ? '#00C853' : '#EF4444',
+                    textAlign: 'center' as const,
+                  }}>
+                    {ativarMsg}
+                  </div>
+                )}
+
+                <div style={{
+                  marginTop: 6, fontFamily: "'Share Tech Mono', monospace",
+                  fontSize: 9, color: '#64748B', textAlign: 'center' as const,
+                }}>
+                  O modelo ativado será usado na próxima vez que o sniffer arrancar
+                </div>
+              </div>
             </div>
           )}
         </Card>
 
-        {/* Estatísticas + Histórico de Sessões */}
+        {/* ── Estatísticas Globais ── */}
         <Card>
           <CardTitle>ESTATÍSTICAS GLOBAIS</CardTitle>
 
@@ -240,7 +282,7 @@ export function GestaoIA() {
           )}
         </Card>
 
-        {/* Histórico de sessões */}
+        {/* ── Histórico de Sessões ── */}
         <FullCard>
           <CardTitle>HISTÓRICO DE SESSÕES</CardTitle>
 

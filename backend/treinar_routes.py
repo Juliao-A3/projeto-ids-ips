@@ -18,7 +18,7 @@ from backend.scapy_module.train_new_model import NovoModeloTrainer
 
 treinar_router = APIRouter(prefix="/sniffer/ia", tags=["IA Treino"])
 
-# ── Estado global do treino ──────────────────────────────────
+# ── Estado global do treino
 _treino_estado = {
     "a_correr":   False,
     "progresso":  0,
@@ -30,7 +30,7 @@ _treino_estado = {
     "fim":        None,
 }
 
-# ── Schemas ──────────────────────────────────────────────────
+# ── Schemas 
 class TreinarSchema(BaseModel):
     origem: str = "logs"          # "logs" ou "pcaps"
     contamination: float = 0.15   # percentagem de anomalias esperada
@@ -38,7 +38,7 @@ class TreinarSchema(BaseModel):
     max_amostras: int = 5000      # máximo de amostras a usar
 
 
-# ── Thread de treino ─────────────────────────────────────────
+# ── Thread de treino 
 def _executar_treino(dados: TreinarSchema):
     global _treino_estado
 
@@ -116,7 +116,7 @@ def _executar_treino(dados: TreinarSchema):
         })
 
 
-# ── ROTAS ────────────────────────────────────────────────────
+# ── ROTAS 
 
 @treinar_router.post("/treinar")
 async def iniciar_treino(

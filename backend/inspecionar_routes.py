@@ -17,6 +17,14 @@ inspecionar_router = APIRouter(prefix="/sniffer/ia", tags=["IA Inspecionar"])
 
 MODELS_DIR = PROJECT_PATH / "models"
 
+def get_modelo_recente():
+    best = MODELS_DIR / "best_model.pkl"
+    if best.exists():
+        return best
+    modelos = list(MODELS_DIR.glob("modelo_scapy_*.pkl"))
+    if modelos:
+        return max(modelos, key=lambda x: x.stat().st_mtime)
+    return None
 
 @inspecionar_router.get("/inspecionar")
 async def inspecionar(
@@ -51,12 +59,12 @@ async def inspecionar(
         raise HTTPException(status_code=404, detail="Não foi possível inspecionar o modelo.")
 
     return {
-        "nome":         modelo_path.name,
-        "caminho":      str(modelo_path),
-        "tipo":         info.get("tipo", "Desconhecido"),
-        "n_features":   info.get("num_features") or info.get("n_features_in"),
+        "nome": modelo_path.name,
+        "caminho": str(modelo_path),
+        "tipo": info.get("tipo", "Desconhecido"),
+        "n_features": info.get("num_features") or info.get("n_features_in"),
         "feature_names": info.get("feature_names", []),
-        "acuracia":     info.get("acuracia", None),
+        "acuracia": info.get("acuracia", None),
     }
 
 

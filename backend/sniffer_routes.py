@@ -1,5 +1,6 @@
 # backend/sniffer_routes.py
 import asyncio
+from datetime import datetime
 import threading
 import sys
 from pathlib import Path
@@ -15,17 +16,17 @@ from dependencies import require_role, verificar_token_ws
 from models import IpsBloqueados, LogEvento, Alerta, Severidade, Status, NetworkConfig
 from sqlalchemy.orm import Session
 from notification_service import notificar_alerta
-from scapy_module.sniffer_realtime import IPSRealtime
+from scapy_module.sniffer_realtime import PROJECT_PATH, IPSRealtime
 
 sniffer_router = APIRouter(prefix="/sniffer", tags=["Sniffer"])
 
-# ── Estado global ─────────────────────────────────────────────
+# ── Estado global 
 _ips_instance:   Optional[IPSRealtime]      = None
 _sniffer_thread: Optional[threading.Thread] = None
 _ws_clients:     list[WebSocket]            = []
 _session_factory                            = None
 
-# ── Event loop dedicado para WebSocket ───────────────────────
+# ── Event loop dedicado para WebSocket 
 _loop: Optional[asyncio.AbstractEventLoop] = None
 
 def _get_loop():
@@ -36,7 +37,7 @@ def _get_loop():
         t.start()
     return _loop
 
-# ── Schemas ──────────────────────────────────────────────────
+# ── Schemas
 class SnifferStartSchema(BaseModel):
     interface: Optional[str] = None
     filtro:    Optional[str] = None
@@ -45,7 +46,7 @@ class SnifferStartSchema(BaseModel):
 class WhitelistSchema(BaseModel):
     ip: str
 
-# ── Broadcast WebSocket ──────────────────────────────────────
+# ── Broadcast WebSocket 
 async def _broadcast_pacote(pkt_info: dict):
     mortos = []
     for ws in _ws_clients:
@@ -57,7 +58,7 @@ async def _broadcast_pacote(pkt_info: dict):
         if ws in _ws_clients:
             _ws_clients.remove(ws)
 
-# ── Callback do Scapy ────────────────────────────────────────
+# ── Callback do Scapy 
 def _callback_pacote(pkt_info: dict):
     if pkt_info.get("tipo") == "anomalia" and _session_factory:
         try:
@@ -109,7 +110,7 @@ def _callback_pacote(pkt_info: dict):
         _get_loop()
     )
 
-# ── Helper — lê config de rede do banco ──────────────────────
+# ── Helper — lê config de rede do banco
 def _ler_network_config():
     if not _session_factory:
         return None
@@ -122,7 +123,7 @@ def _ler_network_config():
         print(f"⚠ Erro ao ler config de rede: {e}")
         return None
 
-# ── ROTAS ────────────────────────────────────────────────────
+# ── ROTAS 
 
 @sniffer_router.post("/start")
 async def start_sniffer(
@@ -271,7 +272,7 @@ async def remove_whitelist(
     return {"message": f"IP {dados.ip} removido da whitelist"}
 
 
-# ── WebSocket ─────────────────────────────────────────────────
+# ── WebSocket 
 @sniffer_router.websocket("/ws")
 async def sniffer_ws(websocket: WebSocket, token: str = ""):
     if not _session_factory:
@@ -305,3 +306,31 @@ async def sniffer_ws(websocket: WebSocket, token: str = ""):
             _ws_clients.remove(websocket)
     finally:
         session.close()
+
+from pydantic import BaseModel
+import shutil
+
+import shutil
+import json
+
+class ModeloAtivoSchema(BaseModel):
+    nome: str
+
+@sniffer_router.post("/modelo/ativar")
+async def ativar_modelo(
+    dados: ModeloAtivoSchema,
+    usuario = Depends(require_role(["admin"]))
+):
+    modelo_path = PROJECT_PATH / "models" / dados.nome
+    if not modelo_path.exists():
+        raise HTTPException(status_code=404, detail="Modelo não encontrado.")
+    
+    # copia para best_model.pkl
+    shutil.copy(modelo_path, PROJECT_PATH / "models" / "best_model.pkl")
+    
+    # ← guarda o nome original num ficheiro de referência
+    ref_path = PROJECT_PATH / "models" / "modelo_ativo.json"
+    with open(ref_path, 'w') as f:
+        json.dump({"nome": dados.nome, "ativado_em": datetime.now().isoformat()}, f)
+    
+    return {"message": f"Modelo {dados.nome} ativado com sucesso!"}  
