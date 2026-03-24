@@ -26,6 +26,7 @@ async def get_config(
 ):
     config = get_or_create_config(session)
     return {
+        "email_provider": config.email_provider,
         "smtp_server": config.smtp_server,
         "smtp_port": config.smtp_port,
         "smtp_ssl": config.smtp_ssl,
@@ -52,6 +53,7 @@ async def save_config(
 ):
     config = get_or_create_config(session)
 
+    config.email_provider = dados.email_provider
     config.smtp_server = dados.smtp_server
     config.smtp_port = dados.smtp_port
     config.smtp_ssl = dados.smtp_ssl
@@ -83,8 +85,8 @@ async def test_email(
         raise HTTPException(status_code=400, detail="Email não está ativado")
 
     providers = {
-        "gmail":   {"server": "smtp.gmail.com",       "port": 587},
-        "outlook": {"server": "smtp.office365.com",   "port": 587},
+        "gmail":   {"server": "smtp.gmail.com", "port": 587},
+        "outlook": {"server": "smtp.office365.com", "port": 587},
     }
     provider = providers.get(config.email_provider, providers["gmail"])
 

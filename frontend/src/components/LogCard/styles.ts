@@ -84,6 +84,25 @@ const logColumns = `
 `;
 
 
+export const LogsList = styled.div`
+  overflow-y: auto;
+  max-height: 400px; /* ← altura máxima — ajusta conforme o teu layout */
+  
+  /* scrollbar estilizada */
+  &::-webkit-scrollbar {
+    width: 4px;
+  }
+  &::-webkit-scrollbar-track {
+    background: ${({ theme }) => theme.colors.background};
+  }
+  &::-webkit-scrollbar-thumb {
+    background: ${({ theme }) => theme.colors.border};
+    border-radius: 2px;
+  }
+  &::-webkit-scrollbar-thumb:hover {
+    background: ${({ theme }) => theme.colors.primary};
+  }
+`
 
 export const ListaMenu = styled.div`
   display: grid;
@@ -117,6 +136,7 @@ export const SidebarWrapper = styled.div`
   grid-column: 4 / 5; 
   display: flex;
   flex-direction: column;
+  overflow: hidden; /* Evita que o conteúdo ultrapasse a área do sidebar */
   gap: 1.5rem; /* Ajuste aqui o espaçamento entre os dois containers */
 `;
 

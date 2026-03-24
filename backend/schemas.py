@@ -39,6 +39,7 @@ class RefreshTokenSchema(BaseModel):
     refresh_token: str        
 
 class NotificationConfigSchema(BaseModel):
+    email_provider:     str             = "gmail"
     smtp_server:        Optional[str]   = None
     smtp_port:          int             = 587
     smtp_ssl:           bool            = True

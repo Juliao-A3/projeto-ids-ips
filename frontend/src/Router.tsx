@@ -4,7 +4,9 @@ import { PublicRoute } from "./PublicRoute";
 import { ConfigLayout } from "./layouts/ConfigLayout";
 import { DefaultLayout } from "./layouts/DefaultLayout";
 import { AIModelSettings } from "./pages/AIModelSettings";
+import { AnaliseEstatica } from "./pages/Analise_Estatica";
 import { Dashboard } from "./pages/Dashboard";
+import { GestaoIA } from "./pages/Gestao-ia";
 import Login from "./pages/Login";
 import { NetworkSettings } from "./pages/NetworkSettings";
 import { NotificationsSettings } from "./pages/NotificationsSettings";
@@ -58,6 +60,8 @@ export function Router() {
       >
         <Route path="profile" element={<ProtectedRoute allowedRoles={["admin", "analista", "operador"]}><UserProfile /></ProtectedRoute>} />
         <Route path="user" element={<ProtectedRoute allowedRoles={["admin"]}><UserPage /></ProtectedRoute>} />
+        <Route path="analise" element={<ProtectedRoute allowedRoles={["admin", "analista"]}><AnaliseEstatica /></ProtectedRoute>} />
+        <Route path="gestao-ia" element={<ProtectedRoute allowedRoles={["admin"]}><GestaoIA /></ProtectedRoute>} />
         <Route path="ai-model" element={<ProtectedRoute allowedRoles={["admin", "analista"]}><AIModelSettings /></ProtectedRoute>} />
         <Route path="network" element={<ProtectedRoute allowedRoles={["admin", "analista"]}><NetworkSettings /></ProtectedRoute>} />
         <Route path="notifications" element={<ProtectedRoute allowedRoles={["admin"]}><NotificationsSettings /></ProtectedRoute>} />
