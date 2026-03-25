@@ -35,7 +35,13 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="AEGIS IDS/IPS", version="4.0.2", lifespan=lifespan)
 
 app.add_middleware(CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:4173",
+        "http://127.0.0.1:4173",
+    ],
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

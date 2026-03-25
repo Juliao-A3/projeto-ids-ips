@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useForm } from "react-hook-form";
+import { api } from "../../services/api";
 import {
   Overlay, Modal, ModalHeader, ModalTitle, CloseBtn, Divider,
   Form, Field, Label, InputRow, InputIcon, EyeBtn, StyledInput,
@@ -50,24 +51,14 @@ export function ChangePasswordModal({ onClose }: Props) {
     setLoading(true);
     setApiError("");
     try {
-      const response = await fetch("/api/auth/change-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      await api.post("/auth/change-password", {
           current_password: data.currentPassword,
           new_password: data.newPassword,
-        }),
       });
 
-      if (!response.ok) {
-        const err = await response.json();
-        setApiError(err.detail || "Senha atual incorreta.");
-        return;
-      }
-
       onClose(); // sucesso → fecha modal
-    } catch {
-      setApiError("Erro de ligação ao servidor.");
+    } catch (error: any) {
+      setApiError(error?.response?.data?.detail || "Erro de ligação ao servidor.");
     } finally {
       setLoading(false);
     }

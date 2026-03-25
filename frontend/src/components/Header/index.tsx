@@ -76,7 +76,7 @@ export function Header() {
         </HeaderCenter>
 
         <AlertConfig>
-          <ConfigButton onClick={() => navigate('/settings/ai-model')}>
+          <ConfigButton onClick={() => navigate('/settings/network')}>
             <Settings size={14} />
             CONFIG
           </ConfigButton>

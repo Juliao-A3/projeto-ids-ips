@@ -4,8 +4,19 @@ import {
   FullCard, Table, Th, Td, Badge, ErrorMsg,
 } from './styles';
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { Upload, FileText, Download, FolderOpen, RefreshCw } from 'lucide-react';
+import { Upload, FileText, Download, FolderOpen, RefreshCw, Table2 } from 'lucide-react';
 import { useAnaliseEstatica } from '../../../hooks/useAnáliseEstatica';
+import { api } from '../../services/api';
+
+// ── tipo de resultado CSV
+interface ResultadoCSV {
+  ficheiro: string;
+  total_linhas: number;
+  normais: number;
+  anomalias: number;
+  taxa_anomalia: number;
+  pacotes: any[];
+}
 
 export function AnaliseEstatica() {
   const {
@@ -13,44 +24,126 @@ export function AnaliseEstatica() {
     testarUpload, testarPasta, fetchHistorico, exportarCSV,
   } = useAnaliseEstatica();
 
-  const [ficheiro, setFicheiro]   = useState<File | null>(null);
-  const [dragging, setDragging]   = useState(false);
-  const [modeloSel, setModeloSel] = useState('');
-  const [limite, setLimite]       = useState('5000');
-  const [pastaSel, setPastaSel]   = useState('ambas');
+  const [ficheiro, setFicheiro]         = useState<File | null>(null);
+  const [dragging, setDragging]         = useState(false);
+  const [modeloSel, setModeloSel]       = useState('');
+  const [limite, setLimite]             = useState('5000');
+  const [pastaSel, setPastaSel]         = useState('ambas');
+  const [tipoFicheiro, setTipoFicheiro] = useState<'pcap' | 'csv'>('pcap');
+
+  // CSV próprio
+  const [csvLoading, setCsvLoading]     = useState(false);
+  const [csvError, setCsvError]         = useState('');
+  const [resultadoCSV, setResultadoCSV] = useState<ResultadoCSV | null>(null);
+
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { fetchHistorico(); }, []);
 
+  // ── drag & drop (pcap + csv)
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setDragging(false);
     const f = e.dataTransfer.files[0];
-    if (f && (f.name.endsWith('.pcap') || f.name.endsWith('.pcapng'))) {
+    if (!f) return;
+    const nome = f.name.toLowerCase();
+    if (nome.endsWith('.pcap') || nome.endsWith('.pcapng')) {
       setFicheiro(f);
+      setTipoFicheiro('pcap');
+      setResultadoCSV(null);
+    } else if (nome.endsWith('.csv')) {
+      setFicheiro(f);
+      setTipoFicheiro('csv');
+      setResultadoCSV(null);
     }
   }, []);
 
-  const handleAnalisar = async () => {
+  const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0] || null;
+    if (!f) return;
+    const nome = f.name.toLowerCase();
+    if (nome.endsWith('.csv')) {
+      setTipoFicheiro('csv');
+      setResultadoCSV(null);
+    } else {
+      setTipoFicheiro('pcap');
+      setResultadoCSV(null);
+    }
+    setFicheiro(f);
+  };
+
+  // ── analisar PCAP (comportamento original)
+  const handleAnalisarPCAP = async () => {
     if (!ficheiro) return;
     await testarUpload(ficheiro, modeloSel || undefined, parseInt(limite));
   };
 
-  const handleTestarPasta = async () => {
-    await testarPasta(pastaSel, modeloSel || undefined, parseInt(limite));
-    setTimeout(fetchHistorico, 2000);
+  // ── analisar CSV
+  const handleAnalisarCSV = async () => {
+    if (!ficheiro) return;
+    setCsvLoading(true);
+    setCsvError('');
+    setResultadoCSV(null);
+    try {
+      const form = new FormData();
+      form.append('ficheiro', ficheiro);
+      if (modeloSel) form.append('modelo', modeloSel);
+      const res = await api.post('/testar/upload-csv', form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setResultadoCSV(res.data);
+    } catch (err: any) {
+      setCsvError(err.response?.data?.detail || 'Erro ao analisar CSV');
+    } finally {
+      setCsvLoading(false);
+    }
   };
+
+  const handleAnalisar = () =>
+    tipoFicheiro === 'csv' ? handleAnalisarCSV() : handleAnalisarPCAP();
+
+  const isLoading = loading || csvLoading;
+
+  // ── exportar CSV do resultado CSV
+  const handleExportarCSV = () => {
+    if (tipoFicheiro === 'csv' && resultadoCSV) {
+      exportarCSV(resultadoCSV.pacotes || []);
+    } else if (resultado) {
+      exportarCSV(resultado.resultado?.pacotes || []);
+    }
+  };
+
+  const temResultado = tipoFicheiro === 'csv' ? !!resultadoCSV : !!resultado;
+
+  // ── dados do resultado para os StatCards
+  const statsResultado = tipoFicheiro === 'csv' && resultadoCSV
+    ? {
+        ficheiro:      resultadoCSV.ficheiro,
+        total_pacotes: resultadoCSV.total_linhas,
+        normais:       resultadoCSV.normais,
+        anomalias:     resultadoCSV.anomalias,
+        taxa_anomalia: resultadoCSV.taxa_anomalia,
+      }
+    : resultado
+    ? {
+        ficheiro:      resultado.ficheiro,
+        total_pacotes: resultado.resultado?.total_pacotes || 0,
+        normais:       resultado.resultado?.normais || 0,
+        anomalias:     resultado.resultado?.anomalias || 0,
+        taxa_anomalia: resultado.resultado?.taxa_anomalia || 0,
+      }
+    : null;
 
   return (
     <Container>
       <Title>ANÁLISE ESTÁTICA</Title>
 
-      {error && <ErrorMsg>⚠ {error}</ErrorMsg>}
+      {(error || csvError) && <ErrorMsg>⚠ {error || csvError}</ErrorMsg>}
 
       <Grid>
-        {/* Upload PCAP */}
+        {/* ── Upload PCAP / CSV ── */}
         <Card>
-          <CardTitle>UPLOAD DE PCAP</CardTitle>
+          <CardTitle>UPLOAD DE FICHEIRO</CardTitle>
 
           <DropZone
             $active={dragging}
@@ -59,21 +152,63 @@ export function AnaliseEstatica() {
             onDrop={onDrop}
             onClick={() => fileRef.current?.click()}
           >
-            <Upload size={32} color={dragging ? '#00A3FF' : '#64748B'} />
+            {tipoFicheiro === 'csv'
+              ? <Table2 size={32} color={dragging ? '#00A3FF' : '#64748B'} />
+              : <Upload  size={32} color={dragging ? '#00A3FF' : '#64748B'} />
+            }
             <DropText>
               {ficheiro
                 ? `✓ ${ficheiro.name}`
-                : 'Arrasta um ficheiro .pcap ou .pcapng aqui, ou clica para selecionar'
+                : 'Arrasta um ficheiro .pcap, .pcapng ou .csv aqui, ou clica para selecionar'
               }
             </DropText>
+
+            {/* badge do tipo detetado */}
+            {ficheiro && (
+              <div style={{
+                marginTop: 8,
+                display: 'inline-block',
+                padding: '2px 10px',
+                borderRadius: 4,
+                fontSize: 9,
+                fontFamily: "'Share Tech Mono', monospace",
+                letterSpacing: 1,
+                background: tipoFicheiro === 'csv' ? 'rgba(168,85,247,0.15)' : 'rgba(0,163,255,0.15)',
+                border: `1px solid ${tipoFicheiro === 'csv' ? 'rgba(168,85,247,0.4)' : 'rgba(0,163,255,0.4)'}`,
+                color: tipoFicheiro === 'csv' ? '#A855F7' : '#00A3FF',
+              }}>
+                {tipoFicheiro === 'csv' ? 'CSV — FEATURES' : 'PCAP — RAW'}
+              </div>
+            )}
           </DropZone>
+
           <input
             ref={fileRef}
             type="file"
-            accept=".pcap,.pcapng"
+            accept=".pcap,.pcapng,.csv"
             style={{ display: 'none' }}
-            onChange={e => setFicheiro(e.target.files?.[0] || null)}
+            onChange={onFileChange}
           />
+
+          {/* dica CSV */}
+          {tipoFicheiro === 'csv' && (
+            <div style={{
+              marginTop: 10,
+              padding: '8px 12px',
+              background: 'rgba(168,85,247,0.08)',
+              border: '1px solid rgba(168,85,247,0.25)',
+              borderRadius: 6,
+              fontFamily: "'Share Tech Mono', monospace",
+              fontSize: 9,
+              color: '#A855F7',
+              lineHeight: 1.6,
+            }}>
+              ℹ O CSV deve conter as 14 features extraídas pelo AEGIS.<br />
+              Colunas: duration, packet_count, byte_count, src_port, dst_port,<br />
+              protocol, flag_syn, flag_ack, flag_fin, flag_rst, pkt_size_mean,<br />
+              pkt_size_std, inter_arrival_mean, inter_arrival_std
+            </div>
+          )}
 
           <div style={{ marginTop: 16 }}>
             <Label>MODELO (opcional)</Label>
@@ -82,31 +217,39 @@ export function AnaliseEstatica() {
               value={modeloSel}
               onChange={e => setModeloSel(e.target.value)}
             />
-            <Label>LIMITE DE PACOTES</Label>
-            <Input
-              type="number"
-              value={limite}
-              onChange={e => setLimite(e.target.value)}
-            />
+            {tipoFicheiro === 'pcap' && (
+              <>
+                <Label>LIMITE DE PACOTES</Label>
+                <Input
+                  type="number"
+                  value={limite}
+                  onChange={e => setLimite(e.target.value)}
+                />
+              </>
+            )}
           </div>
 
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-            <Btn onClick={handleAnalisar} disabled={!ficheiro || loading}>
-              <FileText size={14} />
-              {loading ? 'A ANALISAR...' : 'ANALISAR'}
+            <Btn onClick={handleAnalisar} disabled={!ficheiro || isLoading}>
+              {tipoFicheiro === 'csv'
+                ? <Table2 size={14} />
+                : <FileText size={14} />
+              }
+              {isLoading
+                ? 'A ANALISAR...'
+                : tipoFicheiro === 'csv' ? 'ANALISAR CSV' : 'ANALISAR'
+              }
             </Btn>
-            {resultado && (
-              <Btn
-                $variant="success"
-                onClick={() => exportarCSV(resultado.resultado?.pacotes || [])}
-              >
+
+            {temResultado && (
+              <Btn $variant="success" onClick={handleExportarCSV}>
                 <Download size={14} /> EXPORTAR CSV
               </Btn>
             )}
           </div>
         </Card>
 
-        {/* Testar Pastas */}
+        {/* ── Testar Pastas ── */}
         <Card>
           <CardTitle>TESTAR COM PASTAS</CardTitle>
 
@@ -131,50 +274,50 @@ export function AnaliseEstatica() {
             onChange={e => setLimite(e.target.value)}
           />
 
-          <Btn onClick={handleTestarPasta} disabled={loading}>
+          <Btn onClick={async () => { await testarPasta(pastaSel, modeloSel || undefined, parseInt(limite)); setTimeout(fetchHistorico, 2000); }} disabled={isLoading}>
             <FolderOpen size={14} />
-            {loading ? 'A TESTAR...' : 'TESTAR PASTA'}
+            {isLoading ? 'A TESTAR...' : 'TESTAR PASTA'}
           </Btn>
 
-          {/* Cards das pastas */}
           {testeAtual?.resultado && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 16 }}>
               <StatCard $color="#00C853">
-                <StatValue $color="#00C853">
-                  {testeAtual.resultado.normais?.total_pcaps || 0}
-                </StatValue>
+                <StatValue $color="#00C853">{testeAtual.resultado.normais?.total_pcaps || 0}</StatValue>
                 <StatLabel>PASTA NORMAL</StatLabel>
               </StatCard>
               <StatCard $color="#EF4444">
-                <StatValue $color="#EF4444">
-                  {testeAtual.resultado.ataques?.total_pcaps || 0}
-                </StatValue>
+                <StatValue $color="#EF4444">{testeAtual.resultado.ataques?.total_pcaps || 0}</StatValue>
                 <StatLabel>PASTA ATAQUES</StatLabel>
               </StatCard>
             </div>
           )}
         </Card>
 
-        {/* Resultado do Upload */}
-        {resultado && (
+        {/* ── Resultado ── */}
+        {statsResultado && (
           <FullCard>
-            <CardTitle>RESULTADO DA ANÁLISE — {resultado.ficheiro}</CardTitle>
+            <CardTitle>
+              RESULTADO DA ANÁLISE —{' '}
+              <span style={{ color: tipoFicheiro === 'csv' ? '#A855F7' : '#00A3FF' }}>
+                {statsResultado.ficheiro}
+              </span>
+            </CardTitle>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
               <StatCard>
-                <StatValue>{resultado.resultado?.total_pacotes || 0}</StatValue>
-                <StatLabel>TOTAL PACOTES</StatLabel>
+                <StatValue>{statsResultado.total_pacotes}</StatValue>
+                <StatLabel>{tipoFicheiro === 'csv' ? 'TOTAL LINHAS' : 'TOTAL PACOTES'}</StatLabel>
               </StatCard>
               <StatCard $color="#00C853">
-                <StatValue $color="#00C853">{resultado.resultado?.normais || 0}</StatValue>
+                <StatValue $color="#00C853">{statsResultado.normais}</StatValue>
                 <StatLabel>NORMAIS</StatLabel>
               </StatCard>
               <StatCard $color="#EF4444">
-                <StatValue $color="#EF4444">{resultado.resultado?.anomalias || 0}</StatValue>
+                <StatValue $color="#EF4444">{statsResultado.anomalias}</StatValue>
                 <StatLabel>ANOMALIAS</StatLabel>
               </StatCard>
               <StatCard $color="#FFAB00">
                 <StatValue $color="#FFAB00">
-                  {resultado.resultado?.taxa_anomalia?.toFixed(1) || 0}%
+                  {statsResultado.taxa_anomalia?.toFixed(1) || 0}%
                 </StatValue>
                 <StatLabel>TAXA ANOMALIA</StatLabel>
               </StatCard>
@@ -182,7 +325,7 @@ export function AnaliseEstatica() {
           </FullCard>
         )}
 
-        {/* Histórico */}
+        {/* ── Histórico ── */}
         <FullCard>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <CardTitle style={{ margin: 0 }}>HISTÓRICO DE TESTES</CardTitle>
@@ -201,9 +344,10 @@ export function AnaliseEstatica() {
                 <tr>
                   <Th>DATA</Th>
                   <Th>MODELO</Th>
+                  <Th>TIPO</Th>
                   <Th>NORMAIS</Th>
                   <Th>ATAQUES</Th>
-                  <Th>TOTAL PCAPs</Th>
+                  <Th>TOTAL</Th>
                 </tr>
               </thead>
               <tbody>
@@ -211,6 +355,11 @@ export function AnaliseEstatica() {
                   <tr key={i}>
                     <Td>{h.data_teste?.slice(0, 16).replace('T', ' ')}</Td>
                     <Td>{h.modelo}</Td>
+                    <Td>
+                      <Badge $color={h.tipo === 'csv' ? '#A855F7' : '#00A3FF'}>
+                        {h.tipo?.toUpperCase() || 'PCAP'}
+                      </Badge>
+                    </Td>
                     <Td><Badge $color="#00C853">{h.n_normais}</Badge></Td>
                     <Td><Badge $color="#EF4444">{h.n_ataques}</Badge></Td>
                     <Td>{h.total_pcaps}</Td>

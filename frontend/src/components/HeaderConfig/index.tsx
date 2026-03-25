@@ -18,6 +18,8 @@ const routeNames: Record<string, string> = {
     '/settings/suricata': 'MOTOR SURICATA',
     '/settings/ai-model': 'MODELO DE IA',
     '/settings/network': 'NETWORK',
+    "/settings/gestao-ia": 'GESTÃO DE IA',
+    '/settings/analise': 'ANÁLISE ESTÁTICA',
     '/settings/notifications': 'NOTIFICAÇÕES',
     '/settings/relatorio': 'RELATORIO'
 };

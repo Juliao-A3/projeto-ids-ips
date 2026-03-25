@@ -1,7 +1,9 @@
 import axios from "axios";
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
+
 export const api = axios.create({
-  baseURL: "http://localhost:8000",
+  baseURL: API_BASE_URL,
   timeout: 15000,
 });
 
@@ -42,7 +44,7 @@ api.interceptors.response.use(
           return Promise.reject(error);
         }
 
-        const response = await axios.post("http://localhost:8000/auth/refresh", {
+        const response = await axios.post(`${API_BASE_URL}/auth/refresh`, {
           refresh_token: refreshToken
         });
 

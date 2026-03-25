@@ -16,6 +16,7 @@ export interface ResultadoTeste {
 }
 
 export interface HistoricoItem {
+  tipo: any;
   ficheiro:    string;
   data_teste:  string;
   modelo:      string;

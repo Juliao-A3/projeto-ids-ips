@@ -29,7 +29,6 @@ export function LogCard() {
           </HeaderTitle>
           <ButtonContainer>
             <LogsButton>FILTROS</LogsButton>
-            <LogsButton>EXPORTAR CSV</LogsButton>
           </ButtonContainer>
         </LogHeader>
 

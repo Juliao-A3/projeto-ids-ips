@@ -62,7 +62,7 @@ export function Router() {
         <Route path="user" element={<ProtectedRoute allowedRoles={["admin"]}><UserPage /></ProtectedRoute>} />
         <Route path="analise" element={<ProtectedRoute allowedRoles={["admin", "analista"]}><AnaliseEstatica /></ProtectedRoute>} />
         <Route path="gestao-ia" element={<ProtectedRoute allowedRoles={["admin"]}><GestaoIA /></ProtectedRoute>} />
-        <Route path="ai-model" element={<ProtectedRoute allowedRoles={["admin", "analista"]}><AIModelSettings /></ProtectedRoute>} />
+        {/* <Route path="ai-model" element={<ProtectedRoute allowedRoles={["admin", "analista"]}><AIModelSettings /></ProtectedRoute>} /> */}
         <Route path="network" element={<ProtectedRoute allowedRoles={["admin", "analista"]}><NetworkSettings /></ProtectedRoute>} />
         <Route path="notifications" element={<ProtectedRoute allowedRoles={["admin"]}><NotificationsSettings /></ProtectedRoute>} />
         <Route path="relatorio" element={<ProtectedRoute allowedRoles={["admin", "analista", "operador"]}><ReportsSettings /></ProtectedRoute>} />

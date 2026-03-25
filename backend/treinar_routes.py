@@ -1,175 +1,166 @@
-# backend/treinar_routes.py
-import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent))
-import asyncio
-import threading
-from pathlib import Path
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
-from pydantic import BaseModel
-from typing import Optional
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+
 from backend.dependencies import require_role
 
-import sys
+import io as _io
+
 PROJECT_PATH = Path(__file__).parent.parent
-sys.path.append(str(PROJECT_PATH))
+treinar_router = APIRouter(prefix="/sniffer/ia", tags=["IA Treinar"])
+_treino_estado = {"a_correr": False}
 
-from backend.scapy_module.train_new_model import NovoModeloTrainer
-
-treinar_router = APIRouter(prefix="/sniffer/ia", tags=["IA Treino"])
-
-# ── Estado global do treino
-_treino_estado = {
-    "a_correr":   False,
-    "progresso":  0,
-    "mensagem":   "Aguarda",
-    "acuracia":   None,
-    "erro":       None,
-    "modelo":     None,
-    "inicio":     None,
-    "fim":        None,
-}
-
-# ── Schemas 
-class TreinarSchema(BaseModel):
-    origem: str = "logs"          # "logs" ou "pcaps"
-    contamination: float = 0.15   # percentagem de anomalias esperada
-    test_size: float = 0.25       # percentagem para teste
-    max_amostras: int = 5000      # máximo de amostras a usar
+FEATURE_COLS_TREINO = [
+    "duration", "packet_count", "byte_count",
+    "src_port", "dst_port", "protocol",
+    "flag_syn", "flag_ack", "flag_fin", "flag_rst",
+    "pkt_size_mean", "pkt_size_std",
+    "inter_arrival_mean", "inter_arrival_std",
+]
 
 
-# ── Thread de treino 
-def _executar_treino(dados: TreinarSchema):
-    global _treino_estado
-
-    try:
-        _treino_estado.update({
-            "a_correr":  True,
-            "progresso": 5,
-            "mensagem":  "A inicializar trainer...",
-            "erro":      None,
-            "acuracia":  None,
-            "modelo":    None,
-        })
-
-        trainer = NovoModeloTrainer()
-
-        # 1 — carregar dados
-        _treino_estado.update({ "progresso": 20, "mensagem": "A carregar dados..." })
-
-        if dados.origem == "pcaps":
-            X, y = trainer.preparar_dados_pcaps()
-        else:
-            X, y = trainer.carregar_logs_sniffer(max_entries=dados.max_amostras)
-
-        if X is None or y is None:
-            _treino_estado.update({
-                "a_correr":  False,
-                "progresso": 0,
-                "mensagem":  "Sem dados",
-                "erro":      "Não foram encontrados dados para treinar. Verifica se existem logs ou PCAPs.",
-            })
-            return
-
-        _treino_estado.update({
-            "progresso": 50,
-            "mensagem":  f"Dados carregados: {len(X)} amostras. A treinar modelo...",
-        })
-
-        # 2 — treinar
-        resultado = trainer.treinar_novo_modelo(
-            X, y,
-            contamination = dados.contamination,
-            test_size      = dados.test_size,
-        )
-
-        if resultado is None:
-            _treino_estado.update({
-                "a_correr":  False,
-                "progresso": 0,
-                "mensagem":  "Erro no treino",
-                "erro":      "O treino falhou. Verifica os dados.",
-            })
-            return
-
-        model, acuracia = resultado
-
-        # 3 — encontra o modelo guardado
-        modelos = list((PROJECT_PATH / "models").glob("modelo_scapy_*.pkl"))
-        modelo_novo = max(modelos, key=lambda x: x.stat().st_mtime).name if modelos else None
-
-        _treino_estado.update({
-            "a_correr":  False,
-            "progresso": 100,
-            "mensagem":  "Treino concluído com sucesso!",
-            "acuracia":  round(acuracia * 100, 2),
-            "modelo":    modelo_novo,
-            "erro":      None,
-        })
-
-    except Exception as e:
-        _treino_estado.update({
-            "a_correr":  False,
-            "progresso": 0,
-            "mensagem":  "Erro inesperado",
-            "erro":      str(e),
-        })
-
-
-# ── ROTAS 
-
-@treinar_router.post("/treinar")
-async def iniciar_treino(
-    dados: TreinarSchema,
+@treinar_router.post("/treinar-csv")
+async def treinar_com_csv(
+    ficheiros: Optional[List[UploadFile]] = File(None),
+    ficheiro: Optional[UploadFile] = File(None),
+    contamination: float      = 0.15,
+    test_size:     float      = 0.25,
     usuario = Depends(require_role(["admin"]))
 ):
-    """Inicia o treino de um novo modelo em background."""
-
+    """
+    Treina um novo modelo Isolation Forest a partir de um CSV com features.
+    O CSV pode conter uma coluna 'label' (0=normal, 1=ataque) para calcular
+    a acurácia no conjunto de teste — se não existir, usa unsupervised eval.
+    """
     if _treino_estado["a_correr"]:
+        raise HTTPException(status_code=400, detail="Já existe um treino em curso.")
+
+    upload_files: List[UploadFile] = list(ficheiros or [])
+    if ficheiro is not None:
+        upload_files.append(ficheiro)
+    if not upload_files:
+        raise HTTPException(status_code=400, detail="Envie pelo menos um ficheiro .csv.")
+
+    for f in upload_files:
+        if not f.filename or not f.filename.lower().endswith(".csv"):
+            raise HTTPException(status_code=400, detail="Apenas ficheiros .csv são aceites.")
+
+    try:
+        import pandas as pd
+        import numpy as np
+    except ImportError:
+        raise HTTPException(status_code=500, detail="pandas/numpy não instalados.")
+
+    dataframes = []
+    for f in upload_files:
+        conteudo = await f.read()
+        try:
+            df_item = pd.read_csv(_io.BytesIO(conteudo))
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Erro ao ler CSV '{f.filename}': {e}")
+        if df_item.empty:
+            raise HTTPException(status_code=400, detail=f"O ficheiro CSV '{f.filename}' está vazio.")
+        dataframes.append(df_item)
+
+    df = pd.concat(dataframes, ignore_index=True)
+
+    # ── normaliza nomes das colunas
+    df.columns = [c.strip().lower() for c in df.columns]
+    features_lower = [f.lower() for f in FEATURE_COLS_TREINO]
+
+    ausentes = [f for f in features_lower if f not in df.columns]
+    if ausentes:
         raise HTTPException(
-            status_code=400,
-            detail="Já existe um treino em curso. Aguarda que termine."
+            status_code=422,
+            detail=f"Colunas de features em falta: {ausentes}"
         )
 
-    if dados.origem not in ["logs", "pcaps"]:
-        raise HTTPException(
-            status_code=400,
-            detail="Origem inválida. Usa 'logs' ou 'pcaps'."
+    # ── extrai X e y (label opcional)
+    try:
+        X = df[features_lower].astype(float).values
+        y = df["label"].astype(int).values if "label" in df.columns else None
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"Erro ao preparar dados: {e}")
+
+    # ── valida parâmetros
+    if not (0.01 <= contamination <= 0.5):
+        raise HTTPException(status_code=400, detail="contamination deve estar entre 0.01 e 0.50.")
+    if not (0.1 <= test_size <= 0.5):
+        raise HTTPException(status_code=400, detail="test_size deve estar entre 0.1 e 0.50.")
+
+    # ── treino síncrono (CSV é geralmente pequeno, não precisa de thread)
+    try:
+        from sklearn.ensemble import IsolationForest
+        from sklearn.model_selection import train_test_split
+        from sklearn.preprocessing import StandardScaler
+        from datetime import datetime
+        import pickle
+
+        # split
+        if y is not None:
+            X_train, X_test, y_train, y_test = train_test_split(
+                X, y, test_size=test_size, random_state=42
+            )
+        else:
+            X_train, X_test = train_test_split(X, test_size=test_size, random_state=42)
+            y_train = y_test = None
+
+        # scaler
+        scaler = StandardScaler()
+        X_train_s = scaler.fit_transform(X_train)
+        X_test_s  = scaler.transform(X_test)
+
+        # treino
+        model = IsolationForest(
+            contamination=contamination,
+            n_estimators=200,
+            random_state=42,
+            n_jobs=-1,
         )
+        model.fit(X_train_s)
 
-    if not (0.01 <= dados.contamination <= 0.5):
-        raise HTTPException(
-            status_code=400,
-            detail="Contamination deve estar entre 0.01 e 0.50."
-        )
+        # avaliação
+        preds = model.predict(X_test_s)   # 1 = normal, -1 = anomalia
+        preds_bin = (preds == -1).astype(int)  # 1=anomalia, 0=normal
 
-    # arranca treino em thread separada
-    thread = threading.Thread(
-        target=_executar_treino,
-        args=(dados,),
-        daemon=True
-    )
-    thread.start()
+        if y_test is not None:
+            from sklearn.metrics import accuracy_score
+            acuracia = float(accuracy_score(y_test, preds_bin))
+        else:
+            # sem labels → unsupervised: % de "normais" na predição
+            acuracia = float((preds == 1).sum() / len(preds))
 
-    return {
-        "message": "Treino iniciado!",
-        "origem":        dados.origem,
-        "contamination": dados.contamination,
-        "test_size":     dados.test_size,
-        "max_amostras":  dados.max_amostras,
-    }
+        # guarda modelo
+        MODELS_DIR = PROJECT_PATH / "models"
+        MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
+        ts         = datetime.now().strftime("%Y%m%d_%H%M%S")
+        nome_modelo = f"modelo_scapy_{ts}_csv.pkl"
+        modelo_path = MODELS_DIR / nome_modelo
 
-@treinar_router.get("/treino/status")
-async def status_treino(
-    usuario = Depends(require_role(["admin", "analista"]))
-):
-    """Estado atual do treino em curso ou do último treino."""
-    return {
-        "a_correr":  _treino_estado["a_correr"],
-        "progresso": _treino_estado["progresso"],
-        "mensagem":  _treino_estado["mensagem"],
-        "acuracia":  _treino_estado["acuracia"],
-        "modelo":    _treino_estado["modelo"],
-        "erro":      _treino_estado["erro"],
-    }
+        pacote = {
+            "modelo":        model,
+            "scaler":        scaler,
+            "feature_names": features_lower,
+            "acuracia":      acuracia,
+            "data_treino":   datetime.now().isoformat(),
+            "versao":        "1.0",
+            "origem":        "csv",
+        }
+        with open(modelo_path, "wb") as fp:
+            pickle.dump(pacote, fp)
+
+        return {
+            "message":   "Treino CSV concluído com sucesso!",
+            "modelo":    nome_modelo,
+            "ficheiros": [f.filename for f in upload_files],
+            "total_ficheiros": len(upload_files),
+            "amostras":  len(X),
+            "n_features": len(features_lower),
+            "acuracia":  round(acuracia * 100, 2),
+            "tem_labels": y is not None,
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro durante o treino: {e}")

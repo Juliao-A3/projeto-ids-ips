@@ -10,7 +10,7 @@ async def get_stats(
     session = Depends(get_session)
 ):
     alerts_count = session.query(LogEvento).filter(
-        LogEvento.status.in_([Status.PENDENTE, Status.MITIGADO])).count()
+    LogEvento.status.in_([Status.PENDENTE, Status.MITIGADO])).count()
     bloqueio_count = session.query(IpsBloqueados).count()
     throughput_mbps = 0.0
     

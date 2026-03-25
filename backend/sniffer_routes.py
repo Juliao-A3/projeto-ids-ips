@@ -65,23 +65,23 @@ def _callback_pacote(pkt_info: dict):
             session: Session = next(_session_factory())
 
             evento = LogEvento(
-                src_ip     = pkt_info.get("src_ip", "desconhecido"),
-                dest_ip    = pkt_info.get("dst_ip", "desconhecido"),
-                src_port   = pkt_info.get("src_port", 0),
-                dest_port  = pkt_info.get("dst_port", 0),
-                protocolo  = pkt_info.get("protocolo", "OUTRO"),
+                src_ip = pkt_info.get("src_ip", "desconhecido"),
+                dest_ip = pkt_info.get("dst_ip", "desconhecido"),
+                src_port = pkt_info.get("src_port", 0),
+                dest_port = pkt_info.get("dst_port", 0),
+                protocolo = pkt_info.get("protocolo", "OUTRO"),
                 assinatura = "ANOMALIA_IA",
                 severidade = Severidade.ALTA,
-                status     = Status.PENDENTE,
+                status = Status.PENDENTE,
             )
             session.add(evento)
             session.flush()
 
             alerta = Alerta(
-                evento_id            = evento.id,
-                ip_origem            = pkt_info.get("src_ip", "desconhecido"),
-                ip_destino           = pkt_info.get("dst_ip", "desconhecido"),
-                protocolo            = pkt_info.get("protocolo", "OUTRO"),
+                evento_id = evento.id,
+                ip_origem = pkt_info.get("src_ip", "desconhecido"),
+                ip_destino = pkt_info.get("dst_ip", "desconhecido"),
+                protocolo = pkt_info.get("protocolo", "OUTRO"),
                 porta_de_comunicacao = pkt_info.get("dst_port", 0),
             )
             session.add(alerta)
@@ -89,7 +89,7 @@ def _callback_pacote(pkt_info: dict):
             if pkt_info.get("bloqueado"):
                 ip_block = IpsBloqueados(
                     ip_bloqueado = pkt_info.get("src_ip"),
-                    motivo       = "Bloqueio automatico - anomalia detetada pelo modelo IA",
+                    motivo = "Bloqueio automatico - anomalia detetada pelo modelo IA",
                 )
                 session.add(ip_block)
 

@@ -10,7 +10,7 @@ const MENU_ITEMS = [
   //{ label: 'GERAL', path: '/settings/general', icon: <MdSettings size={18}/> },
   { label: 'USUÁRIO', path: '/settings/user', icon: <MdPerson size={18}/> },
   // { label: 'MOTOR SURICATA', path: '/settings/suricata', icon: <MdDns size={18}/> },
-  { label: 'MODELO DE IA', path: '/settings/ai-model', icon: <MdPsychology size={18}/> },
+  // { label: 'MODELO DE IA', path: '/settings/ai-model', icon: <MdPsychology size={18}/> },
   { label: 'REDE', path: '/settings/network', icon: <MdHub size={18}/> },
   { label: 'ANÁLISE ESTÁTICA', path: '/settings/analise', icon: <MdAssessment size={18}/> },
   { label: 'GESTÃO DE IA', path: '/settings/gestao-ia', icon: <MdPsychology size={18}/> },
@@ -28,13 +28,7 @@ export const MenuLateral: React.FC = () => {
         </NavItem>
       ))}
 
-      <StatusFooter>
-        <span className="label">STATUS DA CONFIGURAÇÃO</span>
-        <div className="progress-bar">
-          <div className="fill" style={{ width: '85%' }}></div>
-        </div>
-        <span style={{ fontSize: '9px' }}>85% das otimizações aplicadas</span>
-      </StatusFooter>
+      
     </SidebarContainer>
   );
 };
