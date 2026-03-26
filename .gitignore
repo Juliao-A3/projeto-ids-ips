@@ -53,6 +53,9 @@ Thumbs.db
 # PROJETO - DADOS E LOGS
 # ============================================
 
+# Ignorar apenas arquivos CSV dentro da pasta cic-2017
+cic-ids2017/*.csv
+
 # Opcional: descomenta se NÃO quiseres subir dados
 # data/
 # models/
