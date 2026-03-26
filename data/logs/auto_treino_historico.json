@@ -1,0 +1,38 @@
+[
+  {
+    "data": "2026-03-26T22:50:10.837142",
+    "modelo_atual": "modelo_scapy_20260319_152419_85.40%.pkl",
+    "modelo_candidato": "modelo_fluxo_20260326_225010_40.00%.pkl",
+    "acuracia_atual": 0,
+    "acuracia_candidato": 0,
+    "melhoria": 0,
+    "promovido": false
+  },
+  {
+    "data": "2026-03-26T23:37:18.564918",
+    "modelo_atual": "modelo_fluxo_20260326_225010_40.00%.pkl",
+    "modelo_candidato": "modelo_fluxo_20260326_233718_47.56%.pkl",
+    "acuracia_atual": 0.12195121951219512,
+    "acuracia_candidato": 0.12195121951219512,
+    "melhoria": 0.0,
+    "promovido": false
+  },
+  {
+    "data": "2026-03-26T23:39:52.857012",
+    "modelo_atual": "modelo_fluxo_20260326_233718_47.56%.pkl",
+    "modelo_candidato": "modelo_fluxo_20260326_233952_42.68%.pkl",
+    "acuracia_atual": 0.12195121951219512,
+    "acuracia_candidato": 0.12195121951219512,
+    "melhoria": 0.0,
+    "promovido": false
+  },
+  {
+    "data": "2026-03-26T23:48:38.460984",
+    "modelo_atual": "modelo_fluxo_20260326_233952_42.68%.pkl",
+    "modelo_candidato": "modelo_fluxo_20260326_234838_48.78%.pkl",
+    "acuracia_atual": 0.12195121951219512,
+    "acuracia_candidato": 0.12195121951219512,
+    "melhoria": 0.0,
+    "promovido": false
+  }
+]

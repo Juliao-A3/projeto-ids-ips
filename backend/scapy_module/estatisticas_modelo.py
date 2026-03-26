@@ -1,18 +1,14 @@
 # backend/scapy_module/estatisticas_modelo.py
-# Script para ver estatísticas detalhadas do modelo
+# Estatísticas do modelo (agora com 78 features)
 
 import pickle
-import numpy as np
+import json
 from pathlib import Path
 import sys
 from datetime import datetime
-import json
 
 PROJECT_PATH = Path(__file__).parent.parent.parent
 sys.path.append(str(PROJECT_PATH))
-
-from backend.scapy_module.predictor import ModelPredictor
-from backend.scapy_module.extractor import ScapyExtractor
 
 def carregar_metricas_sessao():
     """Carrega métricas da última sessão do IPS"""
@@ -20,8 +16,11 @@ def carregar_metricas_sessao():
     sessoes_file = logs_dir / "sessoes.json"
     
     if sessoes_file.exists():
-        with open(sessoes_file, 'r') as f:
-            return json.load(f)
+        try:
+            with open(sessoes_file, 'r') as f:
+                return json.load(f)
+        except:
+            return []
     return []
 
 def analisar_modelo(caminho_modelo=None):
@@ -29,7 +28,7 @@ def analisar_modelo(caminho_modelo=None):
     Analisa o modelo e mostra estatísticas detalhadas
     """
     print("="*80)
-    print("📊 ESTATÍSTICAS DO MODELO")
+    print("📊 ESTATÍSTICAS DO MODELO (FLUXOS - 78 FEATURES)")
     print("="*80)
     
     # Converter para Path se for string
@@ -37,9 +36,9 @@ def analisar_modelo(caminho_modelo=None):
         caminho_modelo = Path(caminho_modelo)
     
     # Se não especificar modelo, procura o mais recente
-    if caminho_modelo is None or not caminho_modelo.exists():
+    if caminho_modelo is None:
         models_dir = PROJECT_PATH / "models"
-        modelos = list(models_dir.glob("modelo_scapy_*.pkl"))
+        modelos = list(models_dir.glob("modelo_fluxo_*.pkl")) + list(models_dir.glob("modelo_principal.pkl"))
         if modelos:
             caminho_modelo = max(modelos, key=lambda x: x.stat().st_mtime)
             print(f"📂 Usando modelo mais recente: {caminho_modelo.name}")
@@ -60,41 +59,23 @@ def analisar_modelo(caminho_modelo=None):
     print(f"\n📦 INFORMAÇÕES DO MODELO")
     print("-" * 40)
     
-    # Se for dicionário (como o teu)
+    # Se for dicionário
     if isinstance(modelo_data, dict):
         print(f"📋 Nome: {caminho_modelo.name}")
         print(f"📅 Data treino: {modelo_data.get('data_treino', 'Desconhecida')}")
         print(f"🎯 Acurácia: {modelo_data.get('acuracia', 'Desconhecida')}")
         print(f"🔢 Versão: {modelo_data.get('versao', '1.0')}")
+        print(f"📊 Features: {modelo_data.get('n_features', 'Desconhecido')}")
         
-        # Features
+        # Mostrar primeiras features
         if 'feature_names' in modelo_data:
             features = modelo_data['feature_names']
-            print(f"\n📋 FEATURES USADAS ({len(features)})")
+            print(f"\n📋 PRIMEIRAS 15 FEATURES (de {len(features)})")
             print("-" * 40)
-            for i, feat in enumerate(features):
+            for i, feat in enumerate(features[:15]):
                 print(f"   {i:2d}. {feat}")
-        
-        # Extrair modelo interno para mais info
-        if 'modelo' in modelo_data:
-            modelo_interno = modelo_data['modelo']
-            if hasattr(modelo_interno, 'n_features_in_'):
-                print(f"\n📊 Features esperadas: {modelo_interno.n_features_in_}")
-    
-    # Se for modelo direto
-    else:
-        print(f"📋 Nome: {caminho_modelo.name}")
-        print(f"📦 Tipo: {type(modelo_data).__name__}")
-        
-        if hasattr(modelo_data, 'n_features_in_'):
-            print(f"📊 Features esperadas: {modelo_data.n_features_in_}")
-        
-        if hasattr(modelo_data, 'feature_names_in_'):
-            features = list(modelo_data.feature_names_in_)
-            print(f"\n📋 FEATURES USADAS ({len(features)})")
-            print("-" * 40)
-            for i, feat in enumerate(features):
-                print(f"   {i:2d}. {feat}")
+            if len(features) > 15:
+                print(f"   ... e mais {len(features)-15} features")
     
     # Carregar histórico de sessões
     sessoes = carregar_metricas_sessao()
@@ -105,11 +86,11 @@ def analisar_modelo(caminho_modelo=None):
         for sessao in sessoes[-5:]:
             inicio = sessao.get('inicio', '')[:16]
             resumo = sessao.get('resumo', {})
-            print(f"📅 {inicio}")
-            print(f"📦 Pacotes: {resumo.get('pacotes', 0)}")
-            print(f"⚠️ Anomalias: {resumo.get('anomalias', 0)}")
-            print(f"🔒 Bloqueios: {resumo.get('bloqueios', 0)}")
-            print(f"🚫 IPs: {resumo.get('ips', 0)}")
+            print(f"   📅 {inicio}")
+            print(f"      📦 Fluxos: {resumo.get('fluxos', 0)}")
+            print(f"      ⚠️ Anomalias: {resumo.get('anomalias', 0)}")
+            print(f"      🔒 Bloqueios: {resumo.get('bloqueios', 0)}")
+            print(f"      🚫 IPs: {resumo.get('ips', 0)}")
     
     print("\n" + "="*80)
 
@@ -118,7 +99,6 @@ def main():
     
     parser = argparse.ArgumentParser(description='Estatísticas do modelo')
     parser.add_argument('--modelo', '-m', help='Caminho específico do modelo .pkl')
-    parser.add_argument('--detalhes', '-d', action='store_true', help='Mostrar detalhes completos')
     
     args = parser.parse_args()
     

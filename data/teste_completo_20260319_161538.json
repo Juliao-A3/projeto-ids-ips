@@ -1,0 +1,22 @@
+{
+  "data_teste": "2026-03-19T16:15:38.725322",
+  "modelo": "C:\\Users\\Herder Ernesto Ngola\\Desktop\\projeto-ids-ips\\models\\best_model.pkl",
+  "resultados_normais": [
+    {
+      "pcap": "C:\\Users\\Herder Ernesto Ngola\\Desktop\\projeto-ids-ips\\data\\pcaps\\normal\\normal.pcapng",
+      "data_analise": "2026-03-19T16:15:38.687785",
+      "modelo_usado": "C:\\Users\\Herder Ernesto Ngola\\Desktop\\projeto-ids-ips\\models\\best_model.pkl",
+      "acuracia_modelo": "desconhecida",
+      "total_pacotes": 2,
+      "normais": 0,
+      "anomalias": 0,
+      "percentual_anomalias": 0.0,
+      "score_medio": 0.0,
+      "score_min": 0.0,
+      "score_max": 0.0,
+      "tipo": "normal",
+      "arquivo": "normal.pcapng"
+    }
+  ],
+  "resultados_ataques": []
+}

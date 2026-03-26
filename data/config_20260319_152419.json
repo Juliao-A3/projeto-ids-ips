@@ -1,0 +1,20 @@
+{
+  "feature_names": [
+    "packet_size",
+    "protocol",
+    "ttl",
+    "window_size",
+    "tcp_flags",
+    "src_port",
+    "dst_port",
+    "payload_size",
+    "ip_entropy",
+    "flag_syn",
+    "flag_ack",
+    "flag_fin",
+    "flag_rst",
+    "inter_arrival"
+  ],
+  "acuracia": 0.854,
+  "data": "2026-03-19T15:24:19.839106"
+}

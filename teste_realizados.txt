@@ -1,413 +1,265 @@
 ================================================================================
 TESTES REALIZADOS - SISTEMA IDS/IPS
-Data: 2026-03-19
+Data: 2026-03-26
 ================================================================================
 
 
-1. TESTE DO INSPETOR (novo modelo 85%)
---------------------------------------------------------------------------------
-COMANDO:
-python backend/scapy_module/inspecionar_modelo.py models\modelo_scapy_20260319_152419_85.40%.pkl
+1. MODELO DE IA (14 FEATURES)
+================================================================================
 
-RESULTADO:
-✅ Funcionou! Modelo usa 14 features
+1.1. MODELO ANTIGO (85.4%)
+--------------------------------------------------------------------------------
+📂 Modelo: modelo_scapy_20260319_152419_85.40%.pkl
 🎯 Acurácia: 85.4%
-📋 Features: packet_size, protocol, ttl, window_size, tcp_flags, src_port, 
-            dst_port, payload_size, ip_entropy, flag_syn, flag_ack, 
-            flag_fin, flag_rst, inter_arrival
+📋 Features (14): packet_size, protocol, ttl, window_size, tcp_flags, src_port,
+                  dst_port, payload_size, ip_entropy, flag_syn, flag_ack,
+                  flag_fin, flag_rst, inter_arrival
 
 
-2. TESTE DO INSPETOR (best_model.pkl)
---------------------------------------------------------------------------------
-COMANDO:
-python backend/scapy_module/inspecionar_modelo.py models\best_model.pkl
-
-RESULTADO:
-❌ Não funcionou - modelo não tem informação de features
-
-
-3. TESTE COM PASTAS (novo modelo 85%, limite 500 pacotes)
---------------------------------------------------------------------------------
-COMANDO:
-python backend/scapy_module/testar_com_pastas.py --modelo models\modelo_scapy_20260319_152419_85.40%.pkl --limite 500
-
-RESULTADO (tráfego normal - normal.pcapng):
-📦 Total: 500 pacotes
-✅ Normais: 329 (65.80%)
-⚠️ Anomalias: 171 (34.20%)
-📁 Resultado guardado: data\resultados_20260319_164520.json
-
-RESULTADO (tráfego de ataque):
-❌ Pasta attacks vazia - sem PCAPs de ataque
-
-
-4. TESTE DO TESTAR_MODELO (best_model.pkl - 10.000 pacotes)
---------------------------------------------------------------------------------
-COMANDO:
-python backend\scapy_module\testar_modelo.py data/pcaps/normal/normal.pcapng models\best_model.pkl
-
-RESULTADO:
-📦 Total: 10000 pacotes
-✅ Normais: 0 (0.00%)
-⚠️ Anomalias: 0 (0.00%)
-📁 Resultado: data\resultados_20260319_173339.json
-
-OBSERVAÇÃO:
-❌ Modelo não classificou nenhum pacote - provavelmente features incompatíveis
-
-
-5. TESTE DO TESTAR_MODELO (novo modelo 85% - 10.000 pacotes)
---------------------------------------------------------------------------------
-COMANDO:
-python backend\scapy_module\testar_modelo.py data/pcaps/normal/normal.pcapng models\modelo_scapy_20260319_152419_85.40%.pkl
-
-RESULTADO:
-📦 Total: 10000 pacotes
-✅ Normais: 9019 (90.19%)
-⚠️ Anomalias: 981 (9.81%)
-📁 Resultado: data\resultados_20260319_174104.json
-
-OBSERVAÇÃO:
-✅ Modelo funcionou perfeitamente!
-   Taxa de falsos positivos: 9.81% (bom para tráfego normal)
-
-
-6. TESTE DO SNIFFER REALTIME (VERSÃO ATUALIZADA)
+2. NOVOS MODELOS (78 FEATURES)
 ================================================================================
 
-6.1. TESTE COM TODAS AS INTERFACES (PADRÃO)
+2.1. MODELO TREINADO COM LOGS DO SNIFFER
+--------------------------------------------------------------------------------
+📂 Modelo: modelo_fluxo_20260326_225010_40.00%.pkl
+🎯 Acurácia: 40.0%
+📊 Features: 70
+
+2.2. MODELO TREINADO COM CIC-IDS2017
+--------------------------------------------------------------------------------
+📂 Modelo: (a treinar)
+🎯 Acurácia: (a definir)
+📊 Features: 78
+
+
+3. TESTES DO SNIFFER REALTIME (VERSÃO ATUALIZADA)
+================================================================================
+
+3.1. TESTE COM MODELO ANTIGO (14 FEATURES)
 --------------------------------------------------------------------------------
 COMANDO:
-python backend/scapy_module/sniffer_realtime.py
+python backend/scapy_module/sniffer_realtime.py --interface "Wi-Fi" --modelo models\modelo_scapy_20260319_152419_85.40%.pkl
 
-RESULTADO (exemplo de saída):
+RESULTADO:
 📡 Modo: TODAS as interfaces (10 encontradas)
-   - Wi-Fi
-   - Ethernet
-   - VirtualBox
-   - VMware
-   - Loopback
-   - Bluetooth
-   - Hyper-V
-   - VPN
-   - Bridge
-   - Docker
-
+   - Wi-Fi, Ethernet, VirtualBox, VMware, Loopback, Bluetooth, Hyper-V, VPN, Bridge, Docker
+📋 Modo LEGADO ativado (14 features)
 🔒 Bloqueio ativo: SIM
 ✅ Whitelist: 7 IPs
-📁 Logs: data/logs/
 
-📊 A cada 100 pacotes mostra estatísticas detalhadas com:
-   - Total, normais, anomalias, bloqueios
-   - 🟢 Interfaces ATIVAS (com contagem de pacotes)
-   - 🔴 Interfaces INATIVAS
-   - Distribuição por protocolo
+✅ Sniffer capturou 40 fluxos
+✅ Ajuste automático de features (72 → 14)
+✅ Todos classificados como normais
 
-
-6.2. TESTE COM INTERFACE ESPECÍFICA (Wi-Fi)
+3.2. TESTE COM MODELO NOVO (78 FEATURES)
 --------------------------------------------------------------------------------
 COMANDO:
-python backend/scapy_module/sniffer_realtime.py --interface "Wi-Fi"
+python backend/scapy_module/sniffer_realtime.py --interface "Wi-Fi" --modelo models\modelo_fluxo_20260326_225010_40.00%.pkl
 
 RESULTADO:
-✅ Captura apenas na interface Wi-Fi
-✅ Mostra nome amigável "Wi-Fi" em vez do UUID longo
+📋 Modo FLUXO ativado (78 features)
+✅ Sniffer capturou e classificou fluxos com 70 features
 
 
-6.3. TESTE DE BLOQUEIO AUTOMÁTICO
---------------------------------------------------------------------------------
-COMANDO:
-python backend/scapy_module/sniffer_realtime.py --interface "Wi-Fi"
-
-RESULTADO (após 1000+ pacotes):
-📦 Total: 1069 pacotes
-✅ Normais: 678 (63.42%)
-⚠️ Anomalias: 391 (36.58%)
-🔒 Bloqueios: 4
-🚫 IPs bloqueados: 4
-
-🚫 IPs BLOQUEADOS:
-   - 196.49.32.6 (341 anomalias)
-   - 192.178.223.84 (6 anomalias)
-   - 10.212.255.152 (25 anomalias)
-   - 142.251.36.42 (16 anomalias)
-
-
-6.4. TESTE DE WHITELIST
---------------------------------------------------------------------------------
-COMANDO:
-python backend/scapy_module/sniffer_realtime.py --interface "Wi-Fi"
-
-RESULTADO (quando deteta IP da whitelist):
-⚪ WHITELIST #150 [📡 Wi-Fi] [UDP]
-   IP: 8.8.8.8 → 10.212.255.152 [WHITELIST]
-   UDP: 53 → 55859
-   Tamanho: 98 bytes
-
-✅ IPs da whitelist NUNCA são bloqueados
-✅ Whitelist atual: 8.8.8.8, 8.8.4.4, 1.1.1.1, 1.0.0.1, 192.168.1.1, 192.168.0.1, 10.212.255.176
-
-
-6.5. TESTE DE INTERFACES ATIVAS VS INATIVAS
---------------------------------------------------------------------------------
-COMANDO:
-python backend/scapy_module/sniffer_realtime.py
-
-RESULTADO (após algumas capturas):
-📡 INTERFACES DE REDE:
-   Total de interfaces: 10
-   🟢 ATIVAS (3):
-      - Wi-Fi: 845 pacotes
-      - Ethernet: 23 pacotes
-      - Loopback: 12 pacotes
-   🔴 INATIVAS (7):
-      - VirtualBox
-      - VMware
-      - Bluetooth
-      - Hyper-V
-      - VPN
-      - Bridge
-      - Docker
-
-✅ Identifica automaticamente interfaces com e sem tráfego
-
-
-7. TESTE DO ESTATISTICAS_MODELO.PY
+4. TESTE DO AUTO-TRAINER
 ================================================================================
 
-7.1. ESTATÍSTICAS DO MODELO MAIS RECENTE
+4.1. STATUS
 --------------------------------------------------------------------------------
 COMANDO:
-python backend/scapy_module/estatisticas_modelo.py
+python backend/scapy_module/auto_trainer.py --status
 
 RESULTADO:
-================================================================================
-📊 ESTATÍSTICAS DO MODELO
-================================================================================
-📂 Usando modelo mais recente: modelo_scapy_20260319_152419_85.40%.pkl
+📊 STATUS DO AUTO-TREINO
+Ativo: ❌ NÃO / ✅ SIM
+Intervalo: 24 horas
+Modelo atual: modelo_fluxo_20260326_225010_40.00%.pkl
+Último treino: 2026-03-26T22:50:10
+Melhoria: +0.00%
 
-📦 INFORMAÇÕES DO MODELO
-----------------------------------------
-📋 Nome: modelo_scapy_20260319_152419_85.40%.pkl
-📅 Data treino: 2026-03-19T15:24:19.770618
-🎯 Acurácia: 0.854
-🔢 Versão: treinado_com_pcaps_reais
-
-📋 FEATURES USADAS (14)
-----------------------------------------
-    0. packet_size
-    1. protocol
-    2. ttl
-    3. window_size
-    4. tcp_flags
-    5. src_port
-    6. dst_port
-    7. payload_size
-    8. ip_entropy
-    9. flag_syn
-   10. flag_ack
-   11. flag_fin
-   12. flag_rst
-   13. inter_arrival
-
-📊 Features esperadas: 14
-
-📊 HISTÓRICO DE SESSÕES (últimas 5)
-----------------------------------------
-   📅 2026-03-19T22:26
-      📦 Pacotes: 274
-      ⚠️ Anomalias: 134
-      🔒 Bloqueios: 5
-      🚫 IPs: 4
-   📅 2026-03-19T22:26
-      📦 Pacotes: 65
-      ⚠️ Anomalias: 36
-      🔒 Bloqueios: 5
-      🚫 IPs: 4
-   📅 2026-03-19T22:26
-      📦 Pacotes: 51
-      ⚠️ Anomalias: 30
-      🔒 Bloqueios: 4
-      🚫 IPs: 3
-   📅 2026-03-19T22:26
-      📦 Pacotes: 34
-      ⚠️ Anomalias: 23
-      🔒 Bloqueios: 3
-      🚫 IPs: 2
-   📅 2026-03-19T22:26
-      📦 Pacotes: 9
-      ⚠️ Anomalias: 9
-      🔒 Bloqueios: 2
-      🚫 IPs: 1
-
-
-7.2. ESTATÍSTICAS DE MODELO ESPECÍFICO
+4.2. INICIAR AUTO-TREINO
 --------------------------------------------------------------------------------
 COMANDO:
-python backend/scapy_module/estatisticas_modelo.py --modelo models\modelo_scapy_20260319_152419_85.40%.pkl
+python backend/scapy_module/auto_trainer.py --iniciar --intervalo 24
 
 RESULTADO:
-📂 Analisando modelo: modelo_scapy_20260319_152419_85.40%.pkl
-✅ Mostra as mesmas informações detalhadas do modelo específico
+✅ Auto-treino ATIVADO (intervalo: 24 horas)
+🔄 Ciclo executado com sucesso
+📊 Comparação: modelo atual 12.20% vs candidato 12.20%
+ℹ️ Modelo mantido (sem melhoria)
+
+4.3. CICLO MANUAL
+--------------------------------------------------------------------------------
+COMANDO:
+python backend/scapy_module/auto_trainer.py --ciclo
+
+RESULTADO:
+✅ Ciclo executado
+✅ Novo modelo treinado (40.0% acurácia)
+✅ Comparação realizada
+✅ Modelo mantido (candidato não melhorou)
+
+4.4. PERSISTÊNCIA DE ESTADO
+--------------------------------------------------------------------------------
+✅ Estado guardado em: data/logs/auto_treino_estado.json
+✅ Histórico guardado em: data/logs/auto_treino_historico.json
 
 
-8. TESTES DE FUNCIONALIDADES ESPECÍFICAS DO IPS
+5. TESTE DO DETECTOR DE ATAQUES
 ================================================================================
 
-8.1. TESTE DE BLOQUEIO AUTOMÁTICO
+5.1. TESTE DOS 12+ TIPOS DE ATAQUE
 --------------------------------------------------------------------------------
-✓ Limiar: 5 anomalias por IP
-✓ Bloqueio realizado após 5 anomalias
-✓ IPs bloqueados corretamente
-✓ Firewall do Windows configurado automaticamente
-✓ Pergunta ao parar: "Deseja LIMPAR todos os IPs bloqueados? (s/n)"
-
-8.2. TESTE DE WHITELIST
---------------------------------------------------------------------------------
-✓ IPs configurados: 8.8.8.8, 8.8.4.4, 1.1.1.1, 1.0.0.1, 192.168.1.1, 192.168.0.1, 10.212.255.176
-✓ Nenhum IP da whitelist foi bloqueado
-✓ Alerta azul "⚪ WHITELIST" quando detetado
-
-8.3. TESTE DE LOGS
---------------------------------------------------------------------------------
-✓ Logs diários em: data/logs/ips_YYYYMMDD.json
-✓ Histórico de sessões em: data/logs/sessoes.json
-✓ Cada log contém:
-   - Timestamp e duração
-   - Total pacotes, anomalias, bloqueios
-   - IPs bloqueados e contagem
-   - Estatísticas por protocolo
-   - Interfaces ativas vs inativas (nomes amigáveis)
-
-8.4. TESTE DE INTERFACES
---------------------------------------------------------------------------------
-✓ Wi-Fi (nome amigável)
-✓ Ethernet (nome amigável)
-✓ Loopback
-✓ UUID específico
-✓ VirtualBox, VMware, Hyper-V, Docker (identificados)
+┌─────────────────────┬─────────────────────────────┐
+│ Ataque              │ Resultado                   │
+├─────────────────────┼─────────────────────────────┤
+│ SYN Flood           │ ✅ Detectado                │
+│ XMAS Scan           │ ✅ Detectado                │
+│ NULL Scan           │ ✅ Detectado                │
+│ ACK Scan            │ ✅ Detectado                │
+│ FIN Scan            │ ✅ Detectado                │
+│ UDP Flood           │ ✅ Detectado                │
+│ ICMP Flood          │ ✅ Detectado                │
+│ DNS Tunnel          │ ✅ Detectado                │
+│ Brute Force (SSH)   │ ✅ Detectado                │
+│ Slowloris           │ ✅ Detectado                │
+│ Ping of Death       │ ✅ Detectado                │
+│ Data Exfiltration   │ ✅ Detectado                │
+└─────────────────────┴─────────────────────────────┘
 
 
-9. TESTES DO SNIFFER COM FILTROS
---------------------------------------------------------------------------------
+6. TESTE DO EXPLICADOR (SHAP)
+================================================================================
 
-9.1. FILTRO ICMP (PING)
+6.1. COM SHAP INSTALADO
 --------------------------------------------------------------------------------
 COMANDO:
-python backend/scapy_module/sniffer_realtime.py --interface "Wi-Fi" --filtro "icmp"
+python -c "from backend.scapy_module.explicador import explicador; import numpy as np; explicador._carregar_modelo('models/modelo_scapy_20260319_152419_85.40%.pkl'); features = np.array([[500,6,64,65535,16,12345,80,100,0.5,0,1,0,0,0.01]]); r = explicador.explicar(features); print(f'Método: {r[\"metodo\"]}')"
 
 RESULTADO:
-✅ Sniffer mostrou apenas pacotes ICMP (ping)
+Método: SHAP
+Predição: normal
+Top features: packet_size, tcp_flags, window_size, protocol, ttl
 
-9.2. FILTRO HTTP (PORTA 80)
+
+7. TESTE DE VINCULAÇÃO
+================================================================================
+
+7.1. TESTAR VINCULO (testar_vinculo.py)
 --------------------------------------------------------------------------------
 COMANDO:
-python backend/scapy_module/sniffer_realtime.py --interface "Wi-Fi" --filtro "tcp port 80"
+python testar_vinculo.py
 
 RESULTADO:
-✅ Sniffer mostrou apenas tráfego HTTP
+✅ FlowExtractor (78 features)
+✅ ScapyExtractor (14 features)
+✅ ModelPredictor
+✅ IPSRealtime
+✅ auto_trainer
+✅ detector_ataques
+✅ explicador
+✅ Modelo antigo carregado (14 features)
+✅ Modelo novo carregado (70 features)
+✅ SYN Flood detectado: True
+✅ XMAS Scan detectado: True
+✅ Explicador com SHAP: OK
+✅ Auto-trainer status: OK
 
-9.3. FILTRO HTTPS (PORTA 443)
+
+8. ARQUIVOS CRIADOS / MODIFICADOS
+================================================================================
+
+8.1. NOVOS ARQUIVOS
 --------------------------------------------------------------------------------
-COMANDO:
-python backend/scapy_module/sniffer_realtime.py --interface "Wi-Fi" --filtro "tcp port 443"
+✅ backend/scapy_module/auto_trainer.py
+✅ backend/scapy_module/detector_ataques.py
+✅ backend/scapy_module/explicador.py
 
-RESULTADO:
-✅ Sniffer mostrou apenas tráfego HTTPS
-
-9.4. FILTRO DNS (PORTA 53)
+8.2. ARQUIVOS MODIFICADOS
 --------------------------------------------------------------------------------
-COMANDO:
-python backend/scapy_module/sniffer_realtime.py --interface "Wi-Fi" --filtro "udp port 53"
-
-RESULTADO:
-✅ Sniffer mostrou apenas consultas DNS
-
-
-10. LISTAGEM DE INTERFACES DISPONÍVEIS
---------------------------------------------------------------------------------
-COMANDO:
-   python -c "from scapy.all import get_if_list; print('\n'.join(get_if_list()))"
-
-RESULTADO (exemplo com nomes amigáveis):
-   Wi-Fi
-   Ethernet
-   VirtualBox
-   VMware
-   Loopback
-   Bluetooth
-   Hyper-V
-   VPN
-   Bridge
-   Docker
+✅ backend/scapy_module/extractor.py (78 features + legado)
+✅ backend/scapy_module/sniffer_realtime.py (integração detector + explicador)
+✅ backend/scapy_module/predictor.py (suporte 78 e 14 features)
+✅ backend/scapy_module/train_new_model.py (suporte logs 78 features)
+✅ backend/scapy_module/inspecionar_modelo.py (mostra 78 features)
+✅ backend/scapy_module/estatisticas_modelo.py (histórico de sessões)
+✅ backend/scapy_module/testar_modelo.py (fluxos)
+✅ backend/scapy_module/testar_com_pastas.py (fluxos)
+✅ backend/scapy_module/__init__.py (importa todos módulos)
 
 
-11. ANÁLISE COMPARATIVA DOS MODELOS
---------------------------------------------------------------------------------
-┌─────────────────────┬────────────────────┬────────────────────┐
-│ Modelo              │ best_model.pkl     │ novo_modelo_85%    │
-├─────────────────────┼────────────────────┼────────────────────┤
-│ Features            │ 69                 │ 14                 │
-│ Pacotes testados    │ 10000              │ 10000              │
-│ Normais detectados  │ 0 (0%)             │ 9019 (90.19%)      │
-│ Anomalias detectadas│ 0 (0%)             │ 981 (9.81%)        │
-│ Status              │ ❌ NÃO FUNCIONA    │ ✅ FUNCIONA        │
-└─────────────────────┴────────────────────┴────────────────────┘
-
-
-12. ARQUIVOS TESTADOS COM SUCESSO
---------------------------------------------------------------------------------
-✅ inspecionar_modelo.py
-✅ extractor.py
-✅ predictor.py
-✅ testar_com_pastas.py
-✅ testar_modelo.py
-✅ sniffer_realtime.py (IPS completo)
-✅ estatisticas_modelo.py
-✅ sistema de logs (data/logs/)
-✅ whitelist (7 IPs configurados)
-
-❌ best_model.pkl - Não compatível
-
-
-13. ARQUIVOS GERADOS
---------------------------------------------------------------------------------
-📁 data\resultados_20260319_164520.json
-📁 data\resultados_20260319_173339.json
-📁 data\resultados_20260319_174104.json
-📁 data\teste_completo_20260319_164520.json
-📁 data\logs\ips_20260319.json
+9. ARQUIVOS GERADOS
+================================================================================
+📁 data\logs\ips_20260326.json
 📁 data\logs\sessoes.json
+📁 data\logs\auto_treino_estado.json
+📁 data\logs\auto_treino_historico.json
+📁 models\modelo_fluxo_20260326_225010_40.00%.pkl
+📁 models\modelo_fluxo_20260326_233718_47.56%.pkl
 
 
-14. RESUMO DAS CAPACIDADES DO SISTEMA
+10. RESUMO DAS CAPACIDADES DO SISTEMA
 ================================================================================
 
-14.1. O QUE O SISTEMA FAZ AGORA:
+10.1. O QUE O SISTEMA FAZ AGORA:
 --------------------------------------------------------------------------------
 ✅ Captura tráfego em tempo real (todas interfaces ou específicas)
 ✅ Nomes amigáveis para interfaces (Wi-Fi, Ethernet, VirtualBox, etc.)
-✅ Analisa pacotes com IA (14 features, 85.4% acurácia)
+✅ Analisa fluxos com IA (78 features ou 14 features legado)
 ✅ Detecta anomalias em tempo real
-✅ Bloqueia IPs automaticamente no firewall (após 5 anomalias)
+✅ Detecta 12+ tipos de ataques específicos
+✅ Explica decisões do modelo (SHAP)
+✅ Bloqueia IPs automaticamente no firewall (bloqueio imediato na primeira anomalia)
+✅ Auto-treino com comparação de modelos
+✅ Persistência de estado do auto-treino
 ✅ Respeita whitelist (7 IPs confiáveis)
-✅ Gera logs detalhados (diários + sessões)
-✅ Mostra estatísticas em tempo real a cada 100 pacotes
+✅ Gera logs detalhados (diários + sessões + auto-treino)
+✅ Mostra estatísticas em tempo real a cada 100 fluxos
 ✅ Interfaces ativas vs inativas com contagem de pacotes
-✅ Estatísticas detalhadas do modelo (estatisticas_modelo.py)
-✅ Histórico de sessões (últimas 5 execuções)
+✅ Estatísticas detalhadas do modelo
+✅ Histórico de sessões
 ✅ Filtros BPF (ICMP, HTTP, HTTPS, DNS)
 ✅ Desbloqueio manual com confirmação
 
-14.2. MÉTRICAS ATUAIS:
+10.2. MÉTRICAS ATUAIS:
 --------------------------------------------------------------------------------
-📊 Acurácia do modelo: 85.4%
-📊 Taxa de anomalias (otimizada): 4.84%
-🔒 Bloqueios na última sessão: 5
-🚫 IPs bloqueados na última sessão: 4
+📊 Acurácia do modelo antigo: 85.4%
+📊 Acurácia do modelo novo: 40.0% (aguarda treino com CIC-IDS2017)
+📊 Features no modelo antigo: 14
+📊 Features no modelo novo: 70-78
+🔒 Tipos de ataques detectados: 12+
 ✅ Whitelist: 7 IPs
 📁 Logs: data/logs/
 
+
+11. PRÓXIMOS PASSOS (PARA O PARCEIRO)
+================================================================================
+
+11.1. BACKEND - ROTAS A CRIAR
+--------------------------------------------------------------------------------
+1️⃣ Criar endpoints em backend/sniffer_routes.py:
+   - POST /sniffer/ia/auto-treino/ativar
+   - POST /sniffer/ia/auto-treino/desativar
+   - POST /sniffer/ia/auto-treino/config
+   - GET /sniffer/ia/auto-treino/status
+   - GET /sniffer/ia/auto-treino/historico
+
+11.2. FRONTEND - COMPONENTES A CRIAR
+--------------------------------------------------------------------------------
+1️⃣ Adicionar secção "Auto-treino" em GestaoIA.tsx:
+   - Toggle para ativar/desativar
+   - Input para intervalo (6-168 horas)
+   - Exibição de status (ativo/inativo)
+   - Tabela de histórico de treinos
+   - Botão "Parar Auto-treino"
+
+2️⃣ Integrar WebSocket para dados em tempo real
+
+11.3. TESTES ADICIONAIS
+--------------------------------------------------------------------------------
+1️⃣ Treinar modelo base com CIC-IDS2017 (78 features)
+2️⃣ Testar sniffer com modelo novo
+3️⃣ Validar auto-treino com modelo novo
 
 ================================================================================
 FIM DO RELATÓRIO

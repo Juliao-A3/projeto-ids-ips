@@ -53,14 +53,11 @@ Thumbs.db
 # PROJETO - DADOS E LOGS
 # ============================================
 
-# Ignorar apenas arquivos CSV dentro da pasta cic-2017
-cic-ids2017/*.csv
+# Ignorar APENAS arquivos CSV da pasta cic-ids2017
+data/cic-ids2017/*.csv
 
-# Opcional: descomenta se NÃO quiseres subir dados
-# data/
-# models/
-# *.pcap
-#*.pcapng
+# Manter modelos .pkl (não ignorar)
+# models/  ← NÃO descomentar, pois queres manter os modelos
 
 # Manter estrutura de pastas vazias
 !.gitkeep
@@ -95,7 +92,7 @@ settings.local.*
 # ============================================
 # ARQUIVOS DE LOGS DO PROJETO
 # ============================================
-*.json
-!models/*.json
+# Nota: mantém os logs (não ignorar)
+# *.json  ← COMENTADO para manter logs e resultados
 !package.json
 !package-lock.json

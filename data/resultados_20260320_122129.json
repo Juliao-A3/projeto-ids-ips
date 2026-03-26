@@ -1,0 +1,10 @@
+{
+  "pcap": "C:\\Users\\Herder Ernesto Ngola\\Desktop\\projeto-ids-ips\\data\\pcaps\\normal\\normal.pcapng",
+  "data_analise": "2026-03-20T12:21:29.865796",
+  "modelo_usado": "models\\modelo_scapy_20260319_152419_85.40%.pkl",
+  "acuracia_modelo": "0.854",
+  "total_pacotes": 1,
+  "normais": 0,
+  "anomalias": 1,
+  "percentual_anomalias": 100.0
+}

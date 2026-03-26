@@ -1,0 +1,13 @@
+{
+  "pcap": "data/pcaps/normal/normal.pcapng",
+  "data_analise": "2026-03-19T16:57:06.207143",
+  "modelo_usado": "models\\modelo_scapy_20260319_152419_85.40%.pkl",
+  "acuracia_modelo": "0.854",
+  "total_pacotes": 10000,
+  "normais": 9019,
+  "anomalias": 981,
+  "percentual_anomalias": 9.81,
+  "score_medio": -0.4439722814867428,
+  "score_min": -0.735743864180763,
+  "score_max": -0.3425029876874018
+}

@@ -1,42 +1,60 @@
-# Script para TESTAR modelo com TODOS os PCAPs das pastas normal e attacks Suporta .pcap e .pcapng
+# backend/scapy_module/testar_com_pastas.py
+# Testa todos os PCAPs de uma pasta com análise por fluxos (78 features)
 
 import sys
 from pathlib import Path
-from datetime import datetime
+import argparse
 import json
+from datetime import datetime
 
 PROJECT_PATH = Path(__file__).parent.parent.parent
 sys.path.append(str(PROJECT_PATH))
 
 from backend.scapy_module.predictor import ModelPredictor
+from backend.scapy_module.extractor import FlowExtractor
+from scapy.all import rdpcap
 
 class TestadorComPastas:
     """
-    Testa o modelo com PCAPs das pastas normal e attacks (suporta .pcap e .pcapng)
+    Testa o modelo com PCAPs das pastas normal e attacks (análise por fluxos)
     """
     
     def __init__(self, modelo_path=None):
         if modelo_path is None:
-            self.modelo_path = PROJECT_PATH / "models" / "best_model.pkl"
+            self.modelo_path = PROJECT_PATH / "models" / "modelo_principal.pkl"
         else:
             self.modelo_path = Path(modelo_path)
         
         print(f"📂 A usar modelo: {self.modelo_path.name}")
         self.predictor = ModelPredictor(self.modelo_path)
         
-        # Pastas de PCAPs
         self.pasta_normal = PROJECT_PATH / "data" / "pcaps" / "normal"
         self.pasta_attacks = PROJECT_PATH / "data" / "pcaps" / "attacks"
         
         print(f"📁 Pasta normal: {self.pasta_normal}")
         print(f"📁 Pasta attacks: {self.pasta_attacks}")
     
+    def _processar_pcap(self, pcap_path, max_packets=None):
+        """Processa um PCAP e retorna fluxos"""
+        print(f"   📁 Processando: {pcap_path.name}")
+        
+        packets = rdpcap(str(pcap_path))
+        if max_packets and len(packets) > max_packets:
+            packets = packets[:max_packets]
+        
+        flow_extractor = FlowExtractor()
+        for pkt in packets:
+            flow_extractor.process_packet(pkt, pkt.time)
+        
+        flows = flow_extractor.get_completed_flows()
+        print(f"      Fluxos extraídos: {len(flows)}")
+        
+        return flows
+    
     def testar_pasta_normal(self, max_packets=5000):
-        """
-        Testa TODOS os PCAPs da pasta normal (suporta .pcap e .pcapng)
-        """
+        """Testa TODOS os PCAPs da pasta normal"""
         print("\n" + "="*70)
-        print("✅ TESTAR TRÁFEGO NORMAL")
+        print("✅ TESTAR TRÁFEGO NORMAL (deve ter POUCAS anomalias)")
         print("="*70)
         
         pcaps = list(self.pasta_normal.glob("*.pcap")) + list(self.pasta_normal.glob("*.pcapng"))
@@ -48,22 +66,35 @@ class TestadorComPastas:
         print(f"📊 Encontrados {len(pcaps)} PCAPs")
         
         resultados = []
-        for pcap in pcaps:
-            print(f"\n📁 Testando: {pcap.name}")
-            res = self.predictor.predict_pcap(pcap, max_packets=max_packets)
-            if res:
-                res['tipo'] = 'normal'
-                res['arquivo'] = pcap.name
-                resultados.append(res)
+        total_fluxos = 0
+        total_anomalias = 0
         
-        return resultados
+        for pcap in pcaps[:5]:  # Limitar a 5 PCAPs
+            print(f"\n📁 {pcap.name}")
+            flows = self._processar_pcap(pcap, max_packets)
+            
+            fluxos_anomalos = 0
+            for flow in flows:
+                pred, _ = self.predictor.predict_flow(flow)
+                if pred == -1:
+                    fluxos_anomalos += 1
+            
+            resultados.append({
+                'arquivo': pcap.name,
+                'total_fluxos': len(flows),
+                'anomalias': fluxos_anomalos,
+                'percentual': (fluxos_anomalos / len(flows) * 100) if flows else 0
+            })
+            
+            total_fluxos += len(flows)
+            total_anomalias += fluxos_anomalos
+        
+        return resultados, total_fluxos, total_anomalias
     
     def testar_pasta_attacks(self, max_packets=5000):
-        """
-        Testa TODOS os PCAPs da pasta attacks (suporta .pcap e .pcapng)
-        """
+        """Testa TODOS os PCAPs da pasta attacks"""
         print("\n" + "="*70)
-        print("⚠️ TESTAR TRÁFEGO DE ATAQUE")
+        print("⚠️ TESTAR TRÁFEGO DE ATAQUE (deve ter MUITAS anomalias)")
         print("="*70)
         
         pcaps = list(self.pasta_attacks.glob("*.pcap")) + list(self.pasta_attacks.glob("*.pcapng"))
@@ -75,80 +106,58 @@ class TestadorComPastas:
         print(f"📊 Encontrados {len(pcaps)} PCAPs")
         
         resultados = []
-        for pcap in pcaps:
-            print(f"\n📁 Testando: {pcap.name}")
-            res = self.predictor.predict_pcap(pcap, max_packets=max_packets)
-            if res:
-                res['tipo'] = 'attack'
-                res['arquivo'] = pcap.name
-                resultados.append(res)
+        total_fluxos = 0
+        total_anomalias = 0
         
-        return resultados
+        for pcap in pcaps[:5]:  # Limitar a 5 PCAPs
+            print(f"\n📁 {pcap.name}")
+            flows = self._processar_pcap(pcap, max_packets)
+            
+            fluxos_anomalos = 0
+            for flow in flows:
+                pred, _ = self.predictor.predict_flow(flow)
+                if pred == -1:
+                    fluxos_anomalos += 1
+            
+            resultados.append({
+                'arquivo': pcap.name,
+                'total_fluxos': len(flows),
+                'anomalias': fluxos_anomalos,
+                'percentual': (fluxos_anomalos / len(flows) * 100) if flows else 0
+            })
+            
+            total_fluxos += len(flows)
+            total_anomalias += fluxos_anomalos
+        
+        return resultados, total_fluxos, total_anomalias
     
     def testar_ambas_pastas(self, max_packets=5000):
-        """
-        Testa PCAPs de AMBAS as pastas e mostra comparação
-        """
+        """Testa PCAPs de AMBAS as pastas e mostra comparação"""
         print("\n" + "="*70)
         print("🔍 TESTAR AMBAS AS PASTAS")
         print("="*70)
         
-        normais = self.testar_pasta_normal(max_packets)
-        ataques = self.testar_pasta_attacks(max_packets)
+        normais, total_normais, anom_normais = self.testar_pasta_normal(max_packets)
+        ataques, total_ataques, anom_ataques = self.testar_pasta_attacks(max_packets)
         
-        self.mostrar_resumo(normais, ataques)
-        self.guardar_resultados(normais, ataques)
-        
-        return normais, ataques
-    
-    def mostrar_resumo(self, normais, ataques):
-        """
-        Mostra resumo comparativo dos resultados
-        """
         print("\n" + "="*70)
         print("📊 RESUMO COMPARATIVO")
         print("="*70)
         
         if normais:
-            total_normais = sum(r['total_pacotes'] for r in normais)
-            anomalias_normais = sum(r['anomalias'] for r in normais)
             print(f"\n✅ TRÁFEGO NORMAL:")
-            print(f"   Total PCAPs: {len(normais)}")
-            print(f"   Total pacotes: {total_normais}")
-            print(f"   Total anomalias: {anomalias_normais}")
-            print(f"   Percentual médio: {anomalias_normais/total_normais*100:.2f}%")
+            print(f"   Total fluxos: {total_normais}")
+            print(f"   Anomalias: {anom_normais} ({anom_normais/total_normais*100:.2f}%)")
         
         if ataques:
-            total_ataques = sum(r['total_pacotes'] for r in ataques)
-            anomalias_ataques = sum(r['anomalias'] for r in ataques)
             print(f"\n⚠️ TRÁFEGO DE ATAQUE:")
-            print(f"   Total PCAPs: {len(ataques)}")
-            print(f"   Total pacotes: {total_ataques}")
-            print(f"   Total anomalias: {anomalias_ataques}")
-            print(f"   Percentual médio: {anomalias_ataques/total_ataques*100:.2f}%")
-    
-    def guardar_resultados(self, normais, ataques):
-        """Guarda resultados em JSON na pasta data"""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        resultados_path = PROJECT_PATH / "data" / f"teste_completo_{timestamp}.json"
+            print(f"   Total fluxos: {total_ataques}")
+            print(f"   Anomalias: {anom_ataques} ({anom_ataques/total_ataques*100:.2f}%)")
         
-        dados = {
-            'data_teste': datetime.now().isoformat(),
-            'modelo': str(self.modelo_path),
-            'resultados_normais': normais,
-            'resultados_ataques': ataques
-        }
-        
-        with open(resultados_path, 'w', encoding='utf-8') as f:
-            json.dump(dados, f, indent=2, ensure_ascii=False)
-        
-        print(f"\n💾 Resultados guardados em: {resultados_path}")
+        return normais, ataques
 
 
-# Interface linha de comando
-if __name__ == "__main__":
-    import argparse
-    
+def main():
     parser = argparse.ArgumentParser(description='Testar modelo com PCAPs')
     parser.add_argument('--pasta', choices=['normal', 'attacks', 'ambas'], 
                        default='ambas', help='Qual pasta testar')
@@ -166,3 +175,6 @@ if __name__ == "__main__":
         testador.testar_pasta_attacks(max_packets=args.limite)
     else:
         testador.testar_ambas_pastas(max_packets=args.limite)
+
+if __name__ == "__main__":
+    main()

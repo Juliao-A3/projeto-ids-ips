@@ -1,0 +1,13 @@
+{
+  "pcap": "data/pcaps/normal/normal.pcapng",
+  "data_analise": "2026-03-19T15:52:05.617008",
+  "modelo_usado": "C:\\Users\\Herder Ernesto Ngola\\Desktop\\projeto-ids-ips\\models\\best_model.pkl",
+  "acuracia_modelo": "desconhecida",
+  "total_pacotes": 10000,
+  "normais": 0,
+  "anomalias": 0,
+  "percentual_anomalias": 0.0,
+  "score_medio": 0.0,
+  "score_min": 0.0,
+  "score_max": 0.0
+}

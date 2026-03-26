@@ -1,6 +1,5 @@
 # backend/scapy_module/sniffer_realtime.py
-# IPS com nomes amigáveis para interfaces e suporte a filtros BPF
-# BLOQUEIO IMEDIATO: qualquer anomalia bloqueia o IP na hora
+# IPS com análise por FLUXO (80+ features), deteção de ataques e explicação
 
 import sys
 from pathlib import Path
@@ -11,18 +10,26 @@ import platform
 import json
 import re
 from datetime import datetime
+from collections import deque, defaultdict
 
 PROJECT_PATH = Path(__file__).parent.parent.parent
 sys.path.append(str(PROJECT_PATH))
 
 from backend.scapy_module.predictor import ModelPredictor
-from backend.scapy_module.extractor import ScapyExtractor
+from backend.scapy_module.extractor import FlowExtractor, Flow
+from backend.scapy_module.detector_ataques import detector
+from backend.scapy_module.explicador import explicador
 from scapy.all import sniff, IP, TCP, UDP, ICMP, get_if_list
-from collections import deque, defaultdict
 import signal
 
 class IPSRealtime:
+    """
+    Sistema de Prevenção de Intrusão com análise por FLUXO (80+ features)
+    Com deteção de ataques e explicação de decisões
+    """
+    
     def __init__(self, modelo_path=None, interface=None, filtro=None, callback=None, bloquear=True):
+        
         # ========== FUNÇÃO PARA NOMES AMIGÁVEIS ==========
         def get_friendly_name(iface):
             """Converte UUIDs do Windows para nomes amigáveis"""
@@ -56,7 +63,7 @@ class IPSRealtime:
         # Se não especificar modelo, procura o mais recente
         if modelo_path is None:
             models_dir = PROJECT_PATH / "models"
-            modelos = list(models_dir.glob("modelo_scapy_*.pkl"))
+            modelos = list(models_dir.glob("modelo_fluxo_*.pkl")) + list(models_dir.glob("modelo_principal.pkl"))
             if modelos:
                 self.modelo_path = max(modelos, key=lambda x: x.stat().st_mtime)
                 print(f"📂 Usando modelo mais recente: {self.modelo_path.name}")
@@ -68,7 +75,19 @@ class IPSRealtime:
         
         print(f"📂 A carregar modelo: {self.modelo_path}")
         self.predictor = ModelPredictor(self.modelo_path)
-        self.extractor = ScapyExtractor(self.predictor.feature_names)
+        
+        # Detetar modo legado
+        self.modo_legado = self._detetar_modo_legado()
+        
+        # Criar extractor com modo adequado
+        self.flow_extractor = FlowExtractor(timeout=60, modo_legado=self.modo_legado)
+        
+        # ========== INTEGRAR DETECTOR E EXPLICADOR ==========
+        self.detector = detector
+        self.explicador = explicador
+        # Carregar o modelo no explicador
+        self.explicador._carregar_modelo(self.modelo_path)
+        # ===================================================
         
         self.filtro = filtro
         if self.filtro:
@@ -107,15 +126,14 @@ class IPSRealtime:
         
         self.callback = callback
         self.bloquear = bloquear
-        self.contador = 0
+        
+        # Estatísticas
+        self.contador_fluxos = 0
         self.anomalias = 0
         self.bloqueios = 0
-        self.ultimos_pacotes = deque(maxlen=100)
+        self.ultimos_fluxos = deque(maxlen=100)
         self.ips_bloqueados = set()
         self.contagem_ips = defaultdict(int)
-        
-        # Dicionário para controlar inserts no banco
-        self.ultimo_registo_banco = {}
         
         self.running = False
         self.sniffer_threads = []
@@ -137,9 +155,19 @@ class IPSRealtime:
         self.sessoes_log = self.log_dir / "sessoes.json"
         self.carregar_logs()
         
+        # Estatísticas por protocolo
         self.stats = {'TCP': 0, 'UDP': 0, 'ICMP': 0, 'OUTROS': 0}
         self.portas_tcp = defaultdict(int)
         self.portas_udp = defaultdict(int)
+    
+    def _detetar_modo_legado(self):
+        """Deteta se o modelo carregado é o antigo (14 features)"""
+        if hasattr(self.predictor, 'feature_names') and self.predictor.feature_names:
+            if len(self.predictor.feature_names) <= 14:
+                print("📋 Modo LEGADO ativado (14 features)")
+                return True
+        print("📋 Modo FLUXO ativado (78 features)")
+        return False
     
     def get_friendly_interface_name(self, iface):
         return self.interface_names.get(iface, iface[:20] + "...")
@@ -158,7 +186,7 @@ class IPSRealtime:
         log_entry = {
             'timestamp': datetime.now().isoformat(),
             'duracao': str(datetime.now() - self.inicio),
-            'total_pacotes': self.contador,
+            'total_fluxos': self.contador_fluxos,
             'anomalias': self.anomalias,
             'bloqueios': self.bloqueios,
             'ips_bloqueados': list(self.ips_bloqueados),
@@ -182,7 +210,7 @@ class IPSRealtime:
             'inicio': self.inicio.isoformat(),
             'fim': datetime.now().isoformat(),
             'resumo': {
-                'pacotes': self.contador,
+                'fluxos': self.contador_fluxos,
                 'anomalias': self.anomalias,
                 'bloqueios': self.bloqueios,
                 'ips': len(self.ips_bloqueados),
@@ -259,187 +287,149 @@ class IPSRealtime:
         }
         return servicos.get(porta, "Desconhecido")
     
-    def processar_pacote(self, pkt, iface=None):
-        if not self.running:
-            return
+    def processar_fluxo(self, flow, iface=None):
+        """
+        Processa um fluxo completo (após finalizado)
+        """
+        self.contador_fluxos += 1
         
-        # IGNORAR PACOTES DE IPS BLOQUEADOS
-        if IP in pkt:
-            ip_src = pkt[IP].src
-            if ip_src in self.ips_bloqueados:
-                return
+        # Extrair features do fluxo
+        features = flow.get_features()
+        feature_values = list(features.values())
         
-        self.contador += 1
-        
-        if iface:
-            self.interface_stats[iface] += 1
-            self.interface_ativas.add(iface)
-            if iface in self.interface_inativas:
-                self.interface_inativas.remove(iface)
-            friendly_iface = self.get_friendly_interface_name(iface)
-        else:
-            friendly_iface = "Desconhecida"
-        
-        if TCP in pkt:
-            self.stats['TCP'] += 1
-            proto = "TCP"
-            tcp = pkt[TCP]
-            self.portas_tcp[tcp.sport] += 1
-            self.portas_tcp[tcp.dport] += 1
-        elif UDP in pkt:
-            self.stats['UDP'] += 1
-            proto = "UDP"
-            udp = pkt[UDP]
-            self.portas_udp[udp.sport] += 1
-            self.portas_udp[udp.dport] += 1
-        elif ICMP in pkt:
-            self.stats['ICMP'] += 1
-            proto = "ICMP"
-        else:
-            self.stats['OUTROS'] += 1
-            proto = "OUTRO"
-        
+        # Classificar com o modelo
         try:
-            feat = self.extractor._extract_packet_features(pkt, None)
-            pred = self.predictor.model.predict([feat])[0]
+            pred, score = self.predictor.predict_flow(flow)
             
-            pkt_info = {
+            # Detetar tipo de ataque
+            tipo_ataque = self.detector.detectar(flow) if pred == -1 else None
+            
+            # Obter explicação se for anomalia
+            explicacao = None
+            if pred == -1:
+                try:
+                    explicacao = self.explicador.explicar(feature_values, list(features.keys()))
+                except:
+                    explicacao = {'contribuicoes': [], 'metodo': 'erro'}
+            
+            # Determinar IP principal do fluxo
+            main_ip = flow.src_ip
+            
+            # Preparar info para WebSocket
+            fluxo_info = {
                 'tipo': 'anomalia' if pred == -1 else 'normal',
                 'timestamp': datetime.now().isoformat(),
-                'protocolo': proto,
-                'tamanho': len(pkt),
-                'contador': self.contador,
-                'interface': friendly_iface
+                'src_ip': flow.src_ip,
+                'dst_ip': flow.dst_ip,
+                'src_port': flow.src_port,
+                'dst_port': flow.dst_port,
+                'protocolo': self._get_protocol_name(flow.protocol),
+                'duration': features.get('Flow Duration', 0),
+                'packets': flow.total_packets,
+                'bytes': flow.total_bytes,
+                'contador': self.contador_fluxos,
+                'interface': self.get_friendly_interface_name(iface) if iface else "Desconhecida",
+                'score': float(score),
+                'tipo_ataque': tipo_ataque,
+                'explicacao': explicacao
             }
-            
-            ip_suspeito = None
-            if IP in pkt:
-                ip = pkt[IP]
-                pkt_info['src_ip'] = ip.src
-                pkt_info['dst_ip'] = ip.dst
-                ip_suspeito = ip.src
-                
-                if TCP in pkt:
-                    tcp = pkt[TCP]
-                    pkt_info['src_port'] = tcp.sport
-                    pkt_info['dst_port'] = tcp.dport
-                    pkt_info['flags'] = str(tcp.flags)
-                elif UDP in pkt:
-                    udp = pkt[UDP]
-                    pkt_info['src_port'] = udp.sport
-                    pkt_info['dst_port'] = udp.dport
             
             if pred == -1:  # anomalia
                 self.anomalias += 1
-                pkt_info['cor'] = 'red'
-                pkt_info['bloqueado'] = False
+                fluxo_info['cor'] = 'red'
+                fluxo_info['bloqueado'] = False
                 
-                # ========== BLOQUEIO IMEDIATO NA PRIMEIRA ANOMALIA ==========
-                if ip_suspeito and ip_suspeito not in self.whitelist:
-                    self.contagem_ips[ip_suspeito] += 1
+                if main_ip and main_ip not in self.whitelist:
+                    self.contagem_ips[main_ip] += 1
                     
                     if self.bloquear:
-                        self.bloquear_ip(ip_suspeito)
-                        pkt_info['bloqueado'] = True
-                # ==========================================================
+                        self.bloquear_ip(main_ip)
+                        fluxo_info['bloqueado'] = True
                 
-                self._mostrar_alerta(pkt, proto, ip_suspeito, friendly_iface)
+                self._mostrar_alerta_fluxo(flow, fluxo_info)
             else:
-                pkt_info['cor'] = 'green'
-                pkt_info['bloqueado'] = False
-                if self.contador % 100 == 0:
-                    self._mostrar_normal(pkt, proto, friendly_iface)
+                fluxo_info['cor'] = 'green'
+                fluxo_info['bloqueado'] = False
+                if self.contador_fluxos % 100 == 0:
+                    self._mostrar_normal_fluxo(flow, fluxo_info)
             
             if self.callback:
-                self.callback(pkt_info)
+                self.callback(fluxo_info)
             
-            self.ultimos_pacotes.append(pkt_info)
+            self.ultimos_fluxos.append(fluxo_info)
             
-            if self.contador % 100 == 0:
+            if self.contador_fluxos % 100 == 0:
                 self._mostrar_estatisticas()
                 
         except Exception as e:
-            print(f"❌ Erro ao processar pacote: {e}")
+            print(f"❌ Erro ao processar fluxo: {e}")
     
-    def _mostrar_alerta(self, pkt, proto, ip_suspeito=None, iface=None):
+    def _get_protocol_name(self, proto_num):
+        """Converte número do protocolo para nome"""
+        if proto_num == 6:
+            return "TCP"
+        elif proto_num == 17:
+            return "UDP"
+        elif proto_num == 1:
+            return "ICMP"
+        else:
+            return f"OUTRO({proto_num})"
+    
+    def _mostrar_alerta_fluxo(self, flow, fluxo_info):
+        """Mostra alerta de anomalia para fluxo"""
         cor_vermelho = '\033[91m'
         cor_amarelo = '\033[93m'
         cor_azul = '\033[94m'
         cor_reset = '\033[0m'
         
-        interface_info = f" [📡 {iface}]" if iface else ""
+        interface_info = f" [📡 {fluxo_info['interface']}]" if fluxo_info['interface'] != "Desconhecida" else ""
         
-        if ip_suspeito and ip_suspeito in self.whitelist:
-            print(f"{cor_azul}⚪ WHITELIST #{self.contador}{interface_info} [{proto}]{cor_reset}")
-        elif ip_suspeito and ip_suspeito in self.ips_bloqueados:
-            print(f"{cor_amarelo}🔒 BLOQUEADO #{self.contador}{interface_info} [{proto}]{cor_reset}")
+        # Mostrar tipo de ataque se disponível
+        tipo_info = f" [{fluxo_info['tipo_ataque']}]" if fluxo_info['tipo_ataque'] else ""
+        
+        if fluxo_info['bloqueado']:
+            print(f"{cor_amarelo}🔒 BLOQUEADO #{fluxo_info['contador']}{interface_info}{tipo_info} [{fluxo_info['protocolo']}]{cor_reset}")
         else:
-            print(f"{cor_vermelho}⚠️ ANOMALIA #{self.contador}{interface_info} [{proto}]{cor_reset}")
+            print(f"{cor_vermelho}⚠️ ANOMALIA #{fluxo_info['contador']}{interface_info}{tipo_info} [{fluxo_info['protocolo']}]{cor_reset}")
         
-        if IP in pkt:
-            ip = pkt[IP]
-            status = ""
-            if ip.src in self.whitelist:
-                status = " [WHITELIST]"
-            elif ip.src in self.ips_bloqueados:
-                status = " [BLOQUEADO]"
-            
-            print(f"   IP: {ip.src} → {ip.dst}{status}")
-            
-            if TCP in pkt:
-                tcp = pkt[TCP]
-                print(f"   TCP: {tcp.sport} → {tcp.dport} | Flags: {tcp.flags}")
-            elif UDP in pkt:
-                udp = pkt[UDP]
-                print(f"   UDP: {udp.sport} → {udp.dport}")
-            elif ICMP in pkt:
-                icmp = pkt[ICMP]
-                print(f"   ICMP: type={icmp.type} code={icmp.code}")
+        print(f"   IP: {flow.src_ip}:{flow.src_port} → {flow.dst_ip}:{flow.dst_port}")
+        print(f"   Duração: {fluxo_info['duration']:.3f}s | Pacotes: {flow.total_packets} | Bytes: {flow.total_bytes}")
+        print(f"   Score: {fluxo_info['score']:.4f}")
         
-        print(f"   Tamanho: {len(pkt)} bytes")
+        # Mostrar explicação
+        if fluxo_info.get('explicacao') and fluxo_info['explicacao'].get('contribuicoes'):
+            print(f"   📊 Principais fatores:")
+            for c in fluxo_info['explicacao']['contribuicoes'][:3]:
+                print(f"      - {c['feature']}: {c['importance']:.2%}")
         
-        if ip_suspeito and ip_suspeito in self.contagem_ips:
-            print(f"   Anomalias deste IP: {self.contagem_ips[ip_suspeito]}")
+        if flow.src_ip in self.contagem_ips:
+            print(f"   Anomalias deste IP: {self.contagem_ips[flow.src_ip]}")
     
-    def _mostrar_normal(self, pkt, proto, iface=None):
-        interface_info = f" [📡 {iface}]" if iface else ""
-        if IP in pkt:
-            ip = pkt[IP]
-            print(f"✅ Normal #{self.contador}{interface_info}: {ip.src} → {ip.dst} [{proto}]")
+    def _mostrar_normal_fluxo(self, flow, fluxo_info):
+        """Mostra fluxo normal (resumido)"""
+        interface_info = f" [📡 {fluxo_info['interface']}]" if fluxo_info['interface'] != "Desconhecida" else ""
+        print(f"✅ Normal #{fluxo_info['contador']}{interface_info}: {flow.src_ip}:{flow.src_port} → {flow.dst_ip}:{flow.dst_port} [{fluxo_info['protocolo']}]")
     
     def _mostrar_estatisticas(self):
-        taxa = (self.anomalias / self.contador) * 100 if self.contador > 0 else 0
+        """Mostra estatísticas a cada 100 fluxos"""
+        taxa = (self.anomalias / self.contador_fluxos) * 100 if self.contador_fluxos > 0 else 0
         
         print("\n" + "="*80)
-        print(f"📊 ESTATÍSTICAS ({self.contador} pacotes)")
+        print(f"📊 ESTATÍSTICAS ({self.contador_fluxos} fluxos)")
         print("="*80)
-        print(f"📦 Total: {self.contador}")
-        print(f"✅ Normais: {self.contador - self.anomalias}")
+        print(f"📦 Total: {self.contador_fluxos}")
+        print(f"✅ Normais: {self.contador_fluxos - self.anomalias}")
         print(f"⚠️ Anomalias: {self.anomalias} ({taxa:.2f}%)")
         print(f"🔒 Bloqueios: {self.bloqueios}")
         print(f"🚫 IPs bloqueados: {len(self.ips_bloqueados)}")
         print(f"✅ IPs na whitelist: {len(self.whitelist)}")
-        if self.filtro:
-            print(f"🔍 Filtro ativo: {self.filtro}")
-        
-        if self.portas_tcp:
-            print("\n📊 TOP PORTAS TCP:")
-            for porta, count in sorted(self.portas_tcp.items(), key=lambda x: x[1], reverse=True)[:10]:
-                servico = self._obter_servico(porta)
-                print(f"   Porta {porta}: {count} pacotes ({servico})")
-        
-        if self.portas_udp:
-            print("\n📊 TOP PORTAS UDP:")
-            for porta, count in sorted(self.portas_udp.items(), key=lambda x: x[1], reverse=True)[:10]:
-                servico = self._obter_servico(porta)
-                print(f"   Porta {porta}: {count} pacotes ({servico})")
         
         print(f"\n📡 INTERFACES DE REDE:")
         print(f"   Total de interfaces: {len(self.interface_list)}")
         print(f"   🟢 ATIVAS ({len(self.interface_ativas)}):")
         for iface in sorted(self.interface_ativas):
             friendly = self.get_friendly_interface_name(iface)
-            print(f"      - {friendly}: {self.interface_stats[iface]} pacotes")
+            print(f"      - {friendly}: {self.interface_stats[iface]} fluxos")
         
         if self.interface_inativas:
             print(f"   🔴 INATIVAS ({len(self.interface_inativas)}):")
@@ -449,11 +439,6 @@ class IPSRealtime:
         else:
             print(f"   ✅ Todas as interfaces geraram tráfego!")
         
-        print("\n📈 Por protocolo:")
-        for proto, count in self.stats.items():
-            perc = (count / self.contador) * 100 if self.contador > 0 else 0
-            print(f"   {proto}: {count} ({perc:.1f}%)")
-        
         if self.ips_bloqueados:
             print("\n🚫 IPs BLOQUEADOS:")
             for ip in list(self.ips_bloqueados)[:5]:
@@ -461,13 +446,36 @@ class IPSRealtime:
         
         print("="*80 + "\n")
     
+    def _packet_handler(self, pkt, iface):
+        """
+        Handler de pacotes - agrupa em fluxos
+        """
+        if not self.running:
+            return
+        
+        # Atualizar estatísticas de interface
+        if iface:
+            self.interface_stats[iface] += 1
+            self.interface_ativas.add(iface)
+            if iface in self.interface_inativas:
+                self.interface_inativas.remove(iface)
+        
+        # Processar pacote no extrator de fluxos
+        flow = self.flow_extractor.process_packet(pkt, time.time())
+        
+        # Se um fluxo foi completado, processá-lo
+        completed_flows = self.flow_extractor.get_completed_flows()
+        for completed_flow in completed_flows:
+            self.processar_fluxo(completed_flow, iface)
+    
     def _sniff_thread_func(self, iface):
+        """Função executada na thread para capturar pacotes"""
         try:
             friendly = self.get_friendly_interface_name(iface)
             print(f"   🔵 Iniciada captura em: {friendly}")
             sniff(
                 iface=iface, 
-                prn=lambda pkt: self.processar_pacote(pkt, iface),
+                prn=lambda pkt: self._packet_handler(pkt, iface),
                 filter=self.filtro,
                 store=False,
                 stop_filter=lambda x: not self.running
@@ -478,7 +486,7 @@ class IPSRealtime:
     
     def iniciar(self):
         print("\n" + "="*80)
-        print("🚀 IPS EM TEMPO REAL (BLOQUEIO IMEDIATO)")
+        print("🚀 IPS EM TEMPO REAL (ANÁLISE POR FLUXO + DETECÇÃO DE ATAQUES)")
         print("="*80)
         print(f"📂 Modelo: {self.modelo_path}")
         print(f"📡 Interfaces: {len(self.interface_list)} ativas")
@@ -520,41 +528,20 @@ class IPSRealtime:
         self.running = False
         time.sleep(1)
         
-        print(f"📦 Total pacotes: {self.contador}")
-        print(f"✅ Normais: {self.contador - self.anomalias}")
+        # Processar fluxos restantes
+        remaining_flows = self.flow_extractor.get_completed_flows()
+        for flow in remaining_flows:
+            self.processar_fluxo(flow)
+        
+        print(f"📦 Total fluxos: {self.contador_fluxos}")
+        print(f"✅ Normais: {self.contador_fluxos - self.anomalias}")
         print(f"⚠️ Anomalias: {self.anomalias}")
         print(f"🔒 Bloqueios realizados: {self.bloqueios}")
         print(f"🚫 IPs bloqueados: {len(self.ips_bloqueados)}")
         print(f"✅ IPs na whitelist: {len(self.whitelist)}")
         
-        if self.portas_tcp:
-            print("\n📊 TOP PORTAS TCP:")
-            for porta, count in sorted(self.portas_tcp.items(), key=lambda x: x[1], reverse=True)[:10]:
-                servico = self._obter_servico(porta)
-                print(f"   Porta {porta}: {count} pacotes ({servico})")
-        
-        if self.portas_udp:
-            print("\n📊 TOP PORTAS UDP:")
-            for porta, count in sorted(self.portas_udp.items(), key=lambda x: x[1], reverse=True)[:10]:
-                servico = self._obter_servico(porta)
-                print(f"   Porta {porta}: {count} pacotes ({servico})")
-        
-        print(f"\n📡 RESUMO DE INTERFACES:")
-        print(f"   🟢 ATIVAS ({len(self.interface_ativas)}):")
-        for iface in sorted(self.interface_ativas):
-            friendly = self.get_friendly_interface_name(iface)
-            print(f"      - {friendly}: {self.interface_stats[iface]} pacotes")
-        
-        if self.interface_inativas:
-            print(f"   🔴 INATIVAS ({len(self.interface_inativas)}):")
-            for iface in sorted(self.interface_inativas):
-                friendly = self.get_friendly_interface_name(iface)
-                print(f"      - {friendly}")
-        else:
-            print(f"   ✅ Todas as interfaces geraram tráfego!")
-        
-        if self.contador > 0:
-            taxa = (self.anomalias / self.contador) * 100
+        if self.contador_fluxos > 0:
+            taxa = (self.anomalias / self.contador_fluxos) * 100
             print(f"\n📊 Taxa de anomalias: {taxa:.2f}%")
         
         if self.ips_bloqueados:
@@ -565,6 +552,15 @@ class IPSRealtime:
         self.salvar_log()
         print(f"\n📁 Log guardado em: {self.log_file}")
         
+        if self.ips_bloqueados:
+            print("\n" + "="*80)
+            resposta = input("❓ Deseja LIMPAR (remover) todos os IPs bloqueados? (s/n): ").strip().lower()
+            if resposta == 's':
+                self.limpar_todas_regras()
+            else:
+                print("🔒 Regras de bloqueio mantidas no firewall")
+                print("📋 IPs continuam bloqueados (podes desbloquear manualmente depois)")
+        
         print("="*80)
         print("✅ IPS parado com sucesso!")
 
@@ -572,7 +568,7 @@ class IPSRealtime:
 def main():
     import argparse
     
-    parser = argparse.ArgumentParser(description='IPS com nomes amigáveis e filtros BPF - BLOQUEIO IMEDIATO')
+    parser = argparse.ArgumentParser(description='IPS com análise por fluxo e deteção de ataques')
     parser.add_argument('--interface', '-i', 
                        help='Interface de rede (ex: "Wi-Fi", "Ethernet") - Se não especificar, captura em TODAS')
     parser.add_argument('--modelo', '-m', help='Caminho do modelo .pkl')
@@ -582,7 +578,7 @@ def main():
     args = parser.parse_args()
     
     print("="*80)
-    print("🔧 SISTEMA IPS COM BLOQUEIO IMEDIATO")
+    print("🔧 SISTEMA IPS COM ANÁLISE POR FLUXO E DETECÇÃO DE ATAQUES")
     print("="*80)
     
     ips = IPSRealtime(

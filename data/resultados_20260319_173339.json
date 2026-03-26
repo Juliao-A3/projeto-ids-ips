@@ -1,0 +1,10 @@
+{
+  "pcap": "data/pcaps/normal/normal.pcapng",
+  "data_analise": "2026-03-19T17:33:39.878742",
+  "modelo_usado": "models\\best_model.pkl",
+  "acuracia_modelo": "desconhecida",
+  "total_pacotes": 10000,
+  "normais": 0,
+  "anomalias": 0,
+  "percentual_anomalias": 0.0
+}
