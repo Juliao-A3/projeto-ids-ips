@@ -1,39 +1,6 @@
 [
   {
     "inicio": "2026-03-24T12:43:00.196347",
-    "fim": "2026-03-24T12:43:06.234301",
-    "resumo": {
-      "pacotes": 2,
-      "anomalias": 2,
-      "bloqueios": 2,
-      "ips": 2,
-      "interfaces_ativas": 2
-    }
-  },
-  {
-    "inicio": "2026-03-24T12:43:00.196347",
-    "fim": "2026-03-24T12:43:06.234631",
-    "resumo": {
-      "pacotes": 2,
-      "anomalias": 2,
-      "bloqueios": 2,
-      "ips": 2,
-      "interfaces_ativas": 2
-    }
-  },
-  {
-    "inicio": "2026-03-24T12:43:00.196347",
-    "fim": "2026-03-24T12:43:06.636961",
-    "resumo": {
-      "pacotes": 3,
-      "anomalias": 3,
-      "bloqueios": 3,
-      "ips": 3,
-      "interfaces_ativas": 2
-    }
-  },
-  {
-    "inicio": "2026-03-24T12:43:00.196347",
     "fim": "2026-03-24T12:43:06.840074",
     "resumo": {
       "pacotes": 4,
@@ -546,6 +513,39 @@
       "anomalias": 5,
       "bloqueios": 1,
       "ips": 0,
+      "interfaces_ativas": 2
+    }
+  },
+  {
+    "inicio": "2026-03-27T01:00:00.179164",
+    "fim": "2026-03-27T01:00:42.163597",
+    "resumo": {
+      "fluxos": 0,
+      "anomalias": 0,
+      "bloqueios": 0,
+      "ips": 0,
+      "interfaces_ativas": 0
+    }
+  },
+  {
+    "inicio": "2026-03-27T02:18:55.935772",
+    "fim": "2026-03-27T02:19:56.837426",
+    "resumo": {
+      "fluxos": 1,
+      "anomalias": 1,
+      "bloqueios": 1,
+      "ips": 1,
+      "interfaces_ativas": 2
+    }
+  },
+  {
+    "inicio": "2026-03-27T02:18:55.935772",
+    "fim": "2026-03-27T02:21:53.662623",
+    "resumo": {
+      "fluxos": 34,
+      "anomalias": 34,
+      "bloqueios": 1,
+      "ips": 1,
       "interfaces_ativas": 2
     }
   }
