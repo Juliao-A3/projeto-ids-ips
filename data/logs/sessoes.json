@@ -1,50 +1,6 @@
 [
   {
     "inicio": "2026-03-24T12:43:00.196347",
-    "fim": "2026-03-24T12:43:07.556044",
-    "resumo": {
-      "pacotes": 9,
-      "anomalias": 9,
-      "bloqueios": 5,
-      "ips": 5,
-      "interfaces_ativas": 2
-    }
-  },
-  {
-    "inicio": "2026-03-24T12:43:00.196347",
-    "fim": "2026-03-24T12:43:07.885019",
-    "resumo": {
-      "pacotes": 10,
-      "anomalias": 10,
-      "bloqueios": 6,
-      "ips": 6,
-      "interfaces_ativas": 2
-    }
-  },
-  {
-    "inicio": "2026-03-24T12:43:00.196347",
-    "fim": "2026-03-24T12:43:10.396353",
-    "resumo": {
-      "pacotes": 11,
-      "anomalias": 11,
-      "bloqueios": 7,
-      "ips": 7,
-      "interfaces_ativas": 2
-    }
-  },
-  {
-    "inicio": "2026-03-24T12:43:00.196347",
-    "fim": "2026-03-24T12:43:10.641670",
-    "resumo": {
-      "pacotes": 12,
-      "anomalias": 12,
-      "bloqueios": 8,
-      "ips": 8,
-      "interfaces_ativas": 2
-    }
-  },
-  {
-    "inicio": "2026-03-24T12:43:00.196347",
     "fim": "2026-03-24T12:43:11.212346",
     "resumo": {
       "pacotes": 16,
@@ -547,6 +503,50 @@
       "bloqueios": 0,
       "ips": 0,
       "interfaces_ativas": 0
+    }
+  },
+  {
+    "inicio": "2026-03-27T02:51:33.710167",
+    "fim": "2026-03-27T02:52:46.735350",
+    "resumo": {
+      "fluxos": 1,
+      "anomalias": 1,
+      "bloqueios": 1,
+      "ips": 1,
+      "interfaces_ativas": 2
+    }
+  },
+  {
+    "inicio": "2026-03-27T02:51:33.710167",
+    "fim": "2026-03-27T02:52:53.596110",
+    "resumo": {
+      "fluxos": 3,
+      "anomalias": 3,
+      "bloqueios": 1,
+      "ips": 1,
+      "interfaces_ativas": 2
+    }
+  },
+  {
+    "inicio": "2026-03-27T02:51:33.710167",
+    "fim": "2026-03-27T02:52:58.921397",
+    "resumo": {
+      "fluxos": 3,
+      "anomalias": 3,
+      "bloqueios": 1,
+      "ips": 0,
+      "interfaces_ativas": 2
+    }
+  },
+  {
+    "inicio": "2026-03-27T02:51:33.710167",
+    "fim": "2026-03-27T02:52:58.926241",
+    "resumo": {
+      "fluxos": 3,
+      "anomalias": 3,
+      "bloqueios": 1,
+      "ips": 0,
+      "interfaces_ativas": 2
     }
   }
 ]
