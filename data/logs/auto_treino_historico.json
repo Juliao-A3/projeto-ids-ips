@@ -34,5 +34,14 @@
     "acuracia_candidato": 0.12195121951219512,
     "melhoria": 0.0,
     "promovido": false
+  },
+  {
+    "data": "2026-03-27T02:45:43.283284",
+    "modelo_atual": "modelo_fluxo_20260327_021524_85.91%.pkl",
+    "modelo_candidato": "modelo_fluxo_20260327_021524_85.91%.pkl",
+    "acuracia_atual": 0.8587213577376339,
+    "acuracia_candidato": 0.8587213577376339,
+    "melhoria": 0.0,
+    "promovido": false
   }
 ]

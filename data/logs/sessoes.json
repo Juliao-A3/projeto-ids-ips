@@ -1,17 +1,6 @@
 [
   {
     "inicio": "2026-03-24T12:43:00.196347",
-    "fim": "2026-03-24T12:43:06.840074",
-    "resumo": {
-      "pacotes": 4,
-      "anomalias": 4,
-      "bloqueios": 4,
-      "ips": 4,
-      "interfaces_ativas": 2
-    }
-  },
-  {
-    "inicio": "2026-03-24T12:43:00.196347",
     "fim": "2026-03-24T12:43:07.556044",
     "resumo": {
       "pacotes": 9,
@@ -547,6 +536,17 @@
       "bloqueios": 1,
       "ips": 1,
       "interfaces_ativas": 2
+    }
+  },
+  {
+    "inicio": "2026-03-27T02:24:55.452744",
+    "fim": "2026-03-27T02:34:52.459525",
+    "resumo": {
+      "fluxos": 0,
+      "anomalias": 0,
+      "bloqueios": 0,
+      "ips": 0,
+      "interfaces_ativas": 0
     }
   }
 ]

@@ -1,5 +1,6 @@
 # backend/scapy_module/auto_trainer.py
 # Auto-treino com comparação de modelos e persistência de estado
+# AGORA USA OPÇÃO 4 (COMBINAR TUDO) DO train_new_model.py
 
 import time
 import threading
@@ -45,7 +46,7 @@ class AutoTrainer:
         # Carregar histórico
         self.historico = self._carregar_historico()
         
-        print("🤖 AutoTrainer inicializado")
+        print("🤖 AutoTrainer inicializado (usa opção COMBINAR TUDO)")
     
     def _carregar_estado(self):
         """Carrega estado salvo"""
@@ -88,7 +89,6 @@ class AutoTrainer:
         """Retorna o caminho do modelo atual em uso"""
         modelo_principal = self.models_folder / "modelo_principal.pkl"
         
-        # Se não existir, procura o mais recente
         if not modelo_principal.exists():
             modelos = list(self.models_folder.glob("modelo_fluxo_*.pkl"))
             if modelos:
@@ -105,16 +105,18 @@ class AutoTrainer:
         return max(modelos, key=lambda x: x.stat().st_mtime)
     
     def _treinar_novo_modelo(self):
-        """Treina um novo modelo usando os logs recentes"""
+        """Treina um novo modelo usando a opção COMBINAR TUDO"""
         print("\n📊 Iniciando treino automático...")
-        print("   A treinar novo modelo com logs recentes...")
-        
+        print("   🔥 Usando opção COMBINAR TUDO (PCAPs + Logs + CSVs)")
+
         try:
             trainer = NovoModeloTrainer()
-            X, y = trainer.carregar_logs_sniffer()
+            
+            # Usar COMBINAR TUDO (opção 4)
+            X, y, scaler = trainer.combinar_tudo()
             
             if X is None or y is None:
-                print("   ❌ Não foi possível carregar dados dos logs")
+                print("   ❌ Não foi possível carregar dados")
                 return None
             
             model, acuracia = trainer.treinar_novo_modelo(X, y)
@@ -135,13 +137,12 @@ class AutoTrainer:
         print("\n📊 Comparando modelos...")
         
         try:
-            # Carregar modelos
             predictor_atual = ModelPredictor(modelo_atual_path)
             predictor_candidato = ModelPredictor(modelo_candidato_path)
             
-            # Usar logs recentes como dados de teste
+            # Usar dados de validação
             trainer = NovoModeloTrainer()
-            X, y = trainer.carregar_logs_sniffer()
+            X, y, _ = trainer.combinar_tudo()
             
             if X is None or y is None:
                 print("   ⚠️ Não foi possível carregar dados para comparação")
@@ -204,12 +205,13 @@ class AutoTrainer:
         print("\n" + "="*70)
         print(f"🔄 CICLO DE AUTO-TREINO - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print("="*70)
+        print("   🔥 Usando opção COMBINAR TUDO (PCAPs + Logs + CSVs)")
         
         # 1. Obter modelo atual
         modelo_atual = self._obter_modelo_atual()
         if modelo_atual is None:
             print("⚠️ Nenhum modelo atual encontrado!")
-            print("🔄 A criar modelo base...")
+            print("🔄 A criar modelo base com COMBINAR TUDO...")
             modelo_candidato = self._treinar_novo_modelo()
             if modelo_candidato:
                 self._promover_modelo(modelo_candidato)
@@ -262,11 +264,9 @@ class AutoTrainer:
         while self.ativo:
             self.executar_ciclo()
             
-            # Aguardar próximo ciclo
             intervalo_segundos = self.intervalo_horas * 3600
             print(f"\n⏰ Próximo treino em {self.intervalo_horas} horas")
             
-            # Aguardar com verificação periódica
             for _ in range(intervalo_segundos):
                 if not self.ativo:
                     break
@@ -287,6 +287,7 @@ class AutoTrainer:
         self.thread.start()
         
         print(f"✅ Auto-treino ATIVADO (intervalo: {intervalo_horas} horas)")
+        print("   🔥 Usando opção COMBINAR TUDO (PCAPs + Logs + CSVs)")
     
     def parar(self):
         """Para o auto-treino"""
@@ -340,6 +341,7 @@ def main():
         print(f"Ativo: {'✅ SIM' if status['ativo'] else '❌ NÃO'}")
         print(f"Intervalo: {status['intervalo_horas']} horas")
         print(f"Modelo atual: {status['modelo_atual']}")
+        print(f"🔥 Usando opção COMBINAR TUDO (PCAPs + Logs + CSVs)")
         if status['ultimo_treino']:
             print(f"Último treino: {status['ultimo_treino']['data'][:19]}")
             print(f"Melhoria: {status['ultimo_treino']['melhoria']*100:+.2f}%")
@@ -350,7 +352,6 @@ def main():
     elif args.iniciar:
         intervalo = args.intervalo if args.intervalo else 24
         auto_trainer.iniciar(intervalo)
-        # Manter o script em execução
         try:
             while True:
                 time.sleep(1)
@@ -369,7 +370,6 @@ def main():
         print("     python auto_trainer.py --iniciar [--intervalo 24]")
         print("     python auto_trainer.py --parar")
         print("     python auto_trainer.py --ciclo")
-
 
 if __name__ == "__main__":
     main()
