@@ -21,4 +21,4 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 
 Write-Host "Dependências instaladas. Para ativar manualmente o venv: .\.venv\Scripts\Activate.ps1"
-Write-Host "Para executar a API: python -m uvicorn backend.main:app --reload (execute a partir da raiz do projeto ou ajuste o path)"
+Write-Host "Para executar a API: python -m uvicorn backend.main:app --reload --reload-dir backend --reload-exclude \".venv/*\""

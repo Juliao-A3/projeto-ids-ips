@@ -22,12 +22,13 @@ cd C:\Users\Herder Ernesto Ngola\Desktop\vscode\projeto-ids-ips\backend
 
 # executar API (a partir da raiz do repositório)
 cd ..
-python -m uvicorn backend.main:app --reload
+python -m uvicorn backend.main:app --reload --reload-dir backend --reload-exclude ".venv/*"
 ```
 
 Observações:
 - Crie um arquivo `.env` na raiz do projeto com pelo menos `SECRET_KEY=uma_chave`.
 - O backend usa SQLite: o arquivo fica em `backend/database/banco.db` (será criado automaticamente quando necessário).
+- Se o servidor ficar reiniciando sozinho por mudanças em `.venv`, use sempre `--reload-dir backend` e `--reload-exclude ".venv/*"`.
 
 ## Frontend (Node / Vite / React + TypeScript)
 

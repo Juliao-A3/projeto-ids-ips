@@ -202,12 +202,12 @@ export const CancelBtn = styled.button`
   }
 `;
 
-export const ConfirmBtn = styled.button<{ $loading?: boolean }>`
+export const ConfirmBtn = styled.button<{ $loading?: boolean; $success?: boolean }>`
   flex: 2;
   padding: 11px;
-  background: ${({ theme, $loading }) =>
-    $loading ? `${theme.colors.primary}22` : theme.colors.primary};
-  border: 1px solid ${({ theme }) => theme.colors.primary};
+  background: ${({ theme, $loading, $success }) =>
+    $success ? `${theme.colors.success ?? "#1f9d55"}` : $loading ? `${theme.colors.primary}22` : theme.colors.primary};
+  border: 1px solid ${({ theme, $success }) => ($success ? `${theme.colors.success ?? "#1f9d55"}` : theme.colors.primary)};
   border-radius: 4px;
   color: ${({ theme }) => theme.colors.text.primary};
   font-family: 'Orbitron', monospace;
@@ -217,7 +217,7 @@ export const ConfirmBtn = styled.button<{ $loading?: boolean }>`
   cursor: ${({ $loading }) => ($loading ? "wait" : "pointer")};
   transition: all 0.2s;
   &:hover:not(:disabled) {
-    box-shadow: 0 0 16px ${({ theme }) => theme.colors.primary}66;
+    box-shadow: 0 0 16px ${({ theme, $success }) => ($success ? `${theme.colors.success ?? "#1f9d55"}` : theme.colors.primary)}66;
     transform: translateY(-1px);
   }
   &:disabled { opacity: 0.7; cursor: wait; }

@@ -24,6 +24,12 @@ const IconLock = () => (
   </svg>
 );
 
+const IconCheck = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+    <polyline points="20 6 9 17 4 12" />
+  </svg>
+);
+
 const IconEye = ({ open }: { open: boolean }) =>
   open ? (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -39,11 +45,12 @@ const IconEye = ({ open }: { open: boolean }) =>
   );
 
 export function ChangePasswordModal({ onClose }: Props) {
-  const [showCurrent, setShowCurrent]   = useState(false);
-  const [showNew, setShowNew]           = useState(false);
-  const [showConfirm, setShowConfirm]   = useState(false);
-  const [loading, setLoading]           = useState(false);
-  const [apiError, setApiError]         = useState("");
+  const [showCurrent, setShowCurrent] = useState(false);
+  const [showNew, setShowNew]         = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [loading, setLoading]         = useState(false);
+  const [success, setSuccess]         = useState(false);
+  const [apiError, setApiError]       = useState("");
 
   const { register, handleSubmit, watch, formState: { errors } } = useForm<FormData>();
 
@@ -51,12 +58,15 @@ export function ChangePasswordModal({ onClose }: Props) {
     setLoading(true);
     setApiError("");
     try {
-      await api.post("/auth/change-password", {
-          current_password: data.currentPassword,
-          new_password: data.newPassword,
+      await api.post("/auth/alterar-senha", {
+        senha_atual: data.currentPassword,
+        nova_senha:  data.newPassword,
       });
 
-      onClose(); // sucesso → fecha modal
+      // ── sucesso: botão fica verde, fecha após 2s
+      setSuccess(true);
+      setTimeout(() => onClose(), 2000);
+
     } catch (error: any) {
       setApiError(error?.response?.data?.detail || "Erro de ligação ao servidor.");
     } finally {
@@ -114,6 +124,10 @@ export function ChangePasswordModal({ onClose }: Props) {
                 {...register("newPassword", {
                   required: "Campo obrigatório",
                   minLength: { value: 8, message: "Mínimo 8 caracteres" },
+                  pattern: {
+                    value: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/,
+                    message: "Precisa de maiúsculas, minúsculas e número",
+                  },
                 })}
               />
               <EyeBtn type="button" onClick={() => setShowNew(v => !v)} tabIndex={-1}>
@@ -158,9 +172,26 @@ export function ChangePasswordModal({ onClose }: Props) {
           )}
 
           <FooterButtons>
-            <CancelBtn type="button" onClick={onClose}>CANCELAR</CancelBtn>
-            <ConfirmBtn type="submit" disabled={loading} $loading={loading}>
-              {loading ? "A GUARDAR..." : "CONFIRMAR →"}
+            <CancelBtn type="button" onClick={onClose} disabled={success}>
+              CANCELAR
+            </CancelBtn>
+
+            <ConfirmBtn
+              type="submit"
+              disabled={loading || success}
+              $loading={loading}
+              $success={success}
+            >
+              {success ? (
+                <>
+                  <IconCheck />
+                  SENHA ALTERADA
+                </>
+              ) : loading ? (
+                "A GUARDAR..."
+              ) : (
+                "CONFIRMAR →"
+              )}
             </ConfirmBtn>
           </FooterButtons>
 

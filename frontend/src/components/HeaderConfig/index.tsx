@@ -115,7 +115,7 @@ export function HeaderConfig() {
                                 setDropdownOpen(false);
                                 }}>
                                 ALTERAR SENHA
-                                </DropdownItem>
+                            </DropdownItem>
 
 
                             <DropdownSeparator />
