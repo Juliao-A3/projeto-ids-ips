@@ -21,7 +21,7 @@ pastas_router = APIRouter(prefix="/sniffer", tags=["Testar com Pastas"])
 MODELS_DIR  = PROJECT_PATH / "models"
 DATA_DIR    = PROJECT_PATH / "data"
 
-# ── Estado global do teste em curso ─────────────────────────
+# ── Estado global do teste em curso 
 _teste_estado = {
     "a_correr":  False,
     "mensagem":  "Aguarda",
@@ -30,7 +30,7 @@ _teste_estado = {
     "erro":      None,
 }
 
-# ── Schema ───────────────────────────────────────────────────
+# ── Schema 
 class TestarPastaSchema(BaseModel):
     pasta:       str = "ambas"   # "normal", "attacks" ou "ambas"
     modelo:      Optional[str] = None
@@ -45,7 +45,7 @@ def get_modelo_recente():
     return best if best.exists() else None
 
 
-# ── Thread de teste ──────────────────────────────────────────
+# ── Thread de teste 
 def _executar_teste(dados: TestarPastaSchema):
     global _teste_estado
 
@@ -138,7 +138,7 @@ def _executar_teste(dados: TestarPastaSchema):
         })
 
 
-# ── ROTAS ────────────────────────────────────────────────────
+# ── ROTAS 
 
 @pastas_router.post("/testar/pasta")
 async def testar_pasta(

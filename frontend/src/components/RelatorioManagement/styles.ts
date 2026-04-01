@@ -101,41 +101,6 @@ export const ViewButtonsGrid = styled.div`
   margin-top: 8px;
 `;
 
-export const DetailedButton = styled.button`
-  background: ${(props) => props.theme.colors.primary};
-  color: #fff;
-  border: none;
-  border-radius: 6px;
-  padding: 10px;
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  cursor: pointer;
-  transition: background 0.2s;
-
-  &:hover {
-    opacity: 0.9;
-  }
-`;
-
-export const SummaryButton = styled.button`
-  background: transparent;
-  color: ${(props) => props.theme.colors.text.secondary};
-  border: 1px solid ${(props) => props.theme.colors.border};
-  border-radius: 6px;
-  padding: 10px;
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  cursor: pointer;
-  transition: all 0.2s;
-
-  &:hover {
-    border-color: ${(props) => props.theme.colors.text.primary};
-    color: ${(props) => props.theme.colors.text.primary};
-  }
-`;
-
 export const IncidentsTable = styled.table`
   width: 100%;
   border-collapse: collapse;
@@ -255,4 +220,55 @@ export const MetricBarFill = styled.div<MetricBarFillProps>`
   background: ${({ color }) => color};
   border-radius: 4px;
   transition: width 0.3s ease;
+`;
+
+
+export const DetailedButton = styled.button<{ $active?: boolean }>`
+  background: ${({ $active, theme }) => $active ? theme.colors.primary : 'transparent'};
+  color: ${({ $active, theme }) => $active ? '#fff' : theme.colors.text.secondary};
+  border: 1px solid ${({ $active, theme }) => $active ? theme.colors.primary : theme.colors.border};
+  border-radius: 6px;
+  padding: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: center;
+  line-height: 1.4;
+
+  box-shadow: ${({ $active, theme }) =>
+    $active ? `0 0 12px ${theme.colors.primary}44` : 'none'};
+
+  &:hover {
+    border-color: ${({ theme }) => theme.colors.primary};
+    color: ${({ theme }) => theme.colors.primary};
+    background: ${({ $active, theme }) =>
+      $active ? theme.colors.primary : `${theme.colors.primary}11`};
+  }
+`;
+
+export const SummaryButton = styled.button<{ $active?: boolean }>`
+  background: ${({ $active, theme }) => $active ? theme.colors.success : 'transparent'};
+  color: ${({ $active, theme }) => $active ? '#fff' : theme.colors.text.secondary};
+  border: 1px solid ${({ $active, theme }) => $active ? theme.colors.success : theme.colors.border};
+  border-radius: 6px;
+  padding: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: center;
+  line-height: 1.4;
+
+  box-shadow: ${({ $active, theme }) =>
+    $active ? `0 0 12px ${theme.colors.success}44` : 'none'};
+
+  &:hover {
+    border-color: ${({ theme }) => theme.colors.success};
+    color: ${({ theme }) => theme.colors.success};
+    background: ${({ $active, theme }) =>
+      $active ? theme.colors.success : `${theme.colors.success}11`};
+  }
 `;

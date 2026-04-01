@@ -2,27 +2,27 @@ import { useState, useEffect, useCallback } from "react";
 import { api } from "../src/services/api";
 
 type Interface = {
-  name:         string;
-  status:       "UP" | "DOWN";
-  speed:        string;
-  ip:           string;
-  mac:          string;
+  name: string;
+  status: "UP" | "DOWN";
+  speed: string;
+  ip: string;
+  mac: string;
   packets_sent: number;
   packets_recv: number;
 };
 
 type BlockedIP = {
-  id:           number;
+  id: number;
   ip_bloqueado: string;
-  motivo:       string;
+  motivo: string;
   bloqueado_em: string;
 };
 
 export type NetworkConfigSchema = {
   capture_interface: string;
-  promiscuous_mode:  boolean;
-  bpf_filter:        string;
-  whitelist:         string;
+  promiscuous_mode: boolean;
+  bpf_filter: string;
+  whitelist: string;
 };
 
 export function useNetwork() {

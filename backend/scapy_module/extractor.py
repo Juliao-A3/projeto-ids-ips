@@ -1,5 +1,5 @@
 # backend/scapy_module/extractor.py
-# Extrator de features por FLUXO - 78 features + compatibilidade com modelo antigo
+# Mantém tudo o que existia + suporte às 10 features do Random Forest
 
 import numpy as np
 from scapy.all import IP, TCP, UDP, ICMP, Raw
@@ -7,55 +7,38 @@ from collections import defaultdict
 import time
 import math
 
-# ============================================
-# CLASSE FLOW - REPRESENTA UM FLUXO DE REDE
-# ============================================
-
 class Flow:
-    """Representa um fluxo de rede (5-tuple)"""
-    
     def __init__(self, src_ip, dst_ip, src_port, dst_port, protocol):
         self.key = (src_ip, dst_ip, src_port, dst_port, protocol)
-        
-        # Informações básicas
         self.src_ip = src_ip
         self.dst_ip = dst_ip
         self.src_port = src_port
         self.dst_port = dst_port
         self.protocol = protocol
-        
-        # Timestamps
+
         self.start_time = None
         self.end_time = None
         self.first_packet_time = None
         self.last_packet_time = None
-        self.packets = []  # Lista de pacotes do fluxo
-        
-        # Contadores
+        self.packets = []
+
         self.total_packets = 0
         self.total_bytes = 0
-        
-        # Contadores direcionais
         self.fwd_packets = 0
         self.bwd_packets = 0
         self.fwd_bytes = 0
         self.bwd_bytes = 0
-        
-        # Listas para estatísticas
+
         self.fwd_packet_sizes = []
         self.bwd_packet_sizes = []
         self.all_packet_sizes = []
-        
-        # IAT (Inter-Arrival Time)
+
         self.iat_list = []
         self.fwd_iat_list = []
         self.bwd_iat_list = []
-        
-        # Timestamps individuais
         self.fwd_timestamps = []
         self.bwd_timestamps = []
-        
-        # Flags TCP
+
         self.fwd_psh_count = 0
         self.bwd_psh_count = 0
         self.fwd_urg_count = 0
@@ -68,24 +51,30 @@ class Flow:
         self.bwd_rst_count = 0
         self.fwd_ack_count = 0
         self.bwd_ack_count = 0
-        
-        # Tamanhos de cabeçalho
+
+        # NOVO: ECE flag
+        self.ece_count = 0
+
         self.fwd_header_bytes = 0
         self.bwd_header_bytes = 0
-        
-        # Windows size
+
         self.fwd_win_bytes = 0
         self.bwd_win_bytes = 0
         self.fwd_win_count = 0
         self.bwd_win_count = 0
-        
-        # Inicialização
+
+        # NOVO: primeira janela TCP (Init Win Byts)
+        self.init_fwd_win_byts = -1   # -1 = ainda não visto
+        self.init_bwd_win_byts = -1
+
+        # NOVO: pacotes forward com payload real
+        self.fwd_act_data_pkts = 0
+
         self.previous_timestamp = None
         self.previous_fwd_timestamp = None
         self.previous_bwd_timestamp = None
         self.forward_direction = None
-        
-        # Subflows
+
         self.subflow_fwd_packets = []
         self.subflow_fwd_bytes = []
         self.subflow_bwd_packets = []
@@ -95,13 +84,11 @@ class Flow:
         self._temp_fwd_bytes = 0
         self._temp_bwd_packets = 0
         self._temp_bwd_bytes = 0
-        
-        # Active/Idle
+
         self.active_times = []
         self.idle_times = []
         self.last_active_time = None
-        
-        # Segment sizes
+
         self.fwd_seg_size_min = float('inf')
         self.fwd_seg_size_max = 0
         self.fwd_seg_size_sum = 0
@@ -110,189 +97,211 @@ class Flow:
         self.bwd_seg_size_max = 0
         self.bwd_seg_size_sum = 0
         self.bwd_seg_size_count = 0
-    
+
     def _determine_direction(self, pkt):
-        """Determina se o pacote é forward ou backward"""
         if IP not in pkt:
             return None
-        
         ip = pkt[IP]
-        
         if self.forward_direction is None:
             self.forward_direction = ip.src
             return 'forward'
-        
-        if ip.src == self.forward_direction:
-            return 'forward'
-        else:
-            return 'backward'
-    
+        return 'forward' if ip.src == self.forward_direction else 'backward'
+
     def _update_subflow(self, timestamp):
-        """Atualiza subflows (segmentos de 1 segundo)"""
         if self.current_subflow_start is None:
             self.current_subflow_start = timestamp
             return
-        
         if timestamp - self.current_subflow_start >= 1.0:
             self.subflow_fwd_packets.append(self._temp_fwd_packets)
             self.subflow_fwd_bytes.append(self._temp_fwd_bytes)
             self.subflow_bwd_packets.append(self._temp_bwd_packets)
             self.subflow_bwd_bytes.append(self._temp_bwd_bytes)
-            
             self.current_subflow_start = timestamp
             self._temp_fwd_packets = 0
             self._temp_fwd_bytes = 0
             self._temp_bwd_packets = 0
             self._temp_bwd_bytes = 0
-    
+
     def add_packet(self, pkt, timestamp):
-        """Adiciona um pacote ao fluxo"""
-        
         if self.first_packet_time is None:
             self.first_packet_time = timestamp
             self.start_time = timestamp
             self.last_active_time = timestamp
             self.current_subflow_start = timestamp
-        
+
         self.last_packet_time = timestamp
         self.end_time = timestamp
         self.packets.append(pkt)
-        
+
         direction = self._determine_direction(pkt)
         packet_size = len(pkt)
         self.total_packets += 1
         self.total_bytes += packet_size
         self.all_packet_sizes.append(packet_size)
-        
+
         if direction == 'forward':
             self.fwd_packets += 1
             self.fwd_bytes += packet_size
             self.fwd_packet_sizes.append(packet_size)
             self.fwd_timestamps.append(timestamp)
-            
             self._temp_fwd_packets += 1
             self._temp_fwd_bytes += packet_size
-            
+
             if self.previous_fwd_timestamp:
-                iat = timestamp - self.previous_fwd_timestamp
-                self.fwd_iat_list.append(iat)
+                self.fwd_iat_list.append(timestamp - self.previous_fwd_timestamp)
             self.previous_fwd_timestamp = timestamp
-            
+
             self.fwd_seg_size_sum += packet_size
             self.fwd_seg_size_count += 1
             if packet_size < self.fwd_seg_size_min:
                 self.fwd_seg_size_min = packet_size
             if packet_size > self.fwd_seg_size_max:
                 self.fwd_seg_size_max = packet_size
-            
+
             if self.last_active_time:
                 idle = timestamp - self.last_active_time
                 if idle > 0:
                     self.idle_times.append(idle)
             self.last_active_time = timestamp
-            
+
         else:
             self.bwd_packets += 1
             self.bwd_bytes += packet_size
             self.bwd_packet_sizes.append(packet_size)
             self.bwd_timestamps.append(timestamp)
-            
             self._temp_bwd_packets += 1
             self._temp_bwd_bytes += packet_size
-            
+
             if self.previous_bwd_timestamp:
-                iat = timestamp - self.previous_bwd_timestamp
-                self.bwd_iat_list.append(iat)
+                self.bwd_iat_list.append(timestamp - self.previous_bwd_timestamp)
             self.previous_bwd_timestamp = timestamp
-            
+
             self.bwd_seg_size_sum += packet_size
             self.bwd_seg_size_count += 1
             if packet_size < self.bwd_seg_size_min:
                 self.bwd_seg_size_min = packet_size
             if packet_size > self.bwd_seg_size_max:
                 self.bwd_seg_size_max = packet_size
-        
+
         if self.previous_timestamp:
-            iat = timestamp - self.previous_timestamp
-            self.iat_list.append(iat)
+            self.iat_list.append(timestamp - self.previous_timestamp)
         self.previous_timestamp = timestamp
-        
+
         if self.last_active_time:
             active = timestamp - self.last_active_time
             if active > 0:
                 self.active_times.append(active)
         self.last_active_time = timestamp
-        
+
         self._update_subflow(timestamp)
-        
-        # Processar flags TCP
+
+        # Flags TCP
         if TCP in pkt:
             tcp = pkt[TCP]
             flags = tcp.flags
-            
+
+            # NOVO: ECE flag (bit E no Scapy)
+            if hasattr(flags, 'E') and flags.E:
+                self.ece_count += 1
+
             if direction == 'forward':
                 if flags.PSH: self.fwd_psh_count += 1
                 if flags.URG: self.fwd_urg_count += 1
-                if flags.S: self.fwd_syn_count += 1
-                if flags.F: self.fwd_fin_count += 1
-                if flags.R: self.fwd_rst_count += 1
-                if flags.A: self.fwd_ack_count += 1
+                if flags.S:   self.fwd_syn_count += 1
+                if flags.F:   self.fwd_fin_count += 1
+                if flags.R:   self.fwd_rst_count += 1
+                if flags.A:   self.fwd_ack_count += 1
+
+                # NOVO: primeira janela forward
+                if self.init_fwd_win_byts == -1:
+                    self.init_fwd_win_byts = tcp.window
+
+                # NOVO: pacotes com payload real
+                if Raw in pkt and len(pkt[Raw].load) > 0:
+                    self.fwd_act_data_pkts += 1
+
                 self.fwd_win_bytes += tcp.window
                 self.fwd_win_count += 1
                 self.fwd_header_bytes += (tcp.dataofs * 4)
             else:
                 if flags.PSH: self.bwd_psh_count += 1
                 if flags.URG: self.bwd_urg_count += 1
-                if flags.S: self.bwd_syn_count += 1
-                if flags.F: self.bwd_fin_count += 1
-                if flags.R: self.bwd_rst_count += 1
-                if flags.A: self.bwd_ack_count += 1
+                if flags.S:   self.bwd_syn_count += 1
+                if flags.F:   self.bwd_fin_count += 1
+                if flags.R:   self.bwd_rst_count += 1
+                if flags.A:   self.bwd_ack_count += 1
+
+                # NOVO: primeira janela backward
+                if self.init_bwd_win_byts == -1:
+                    self.init_bwd_win_byts = tcp.window
+
                 self.bwd_win_bytes += tcp.window
                 self.bwd_win_count += 1
                 self.bwd_header_bytes += (tcp.dataofs * 4)
-    
+
     def _calculate_stats(self, values):
         if not values:
             return 0, 0, 0, 0
         return np.mean(values), np.std(values), np.min(values), np.max(values)
-    
+
+    def get_model_features(self):
+        """
+        Retorna array numpy com as 10 features exactas do Random Forest.
+        Ordem obrigatória — igual ao X_selected do notebook:
+        Bwd Pkt Len Max, Bwd Pkt Len Mean, Bwd Pkt Len Std,
+        Pkt Len Max, RST Flag Cnt, ECE Flag Cnt,
+        Init Fwd Win Byts, Init Bwd Win Byts,
+        Fwd Act Data Pkts, Fwd Seg Size Min
+        """
+        _, bwd_std, _, bwd_max = self._calculate_stats(self.bwd_packet_sizes)
+        bwd_mean = np.mean(self.bwd_packet_sizes) if self.bwd_packet_sizes else 0
+        _, _, _, pkt_max = self._calculate_stats(self.all_packet_sizes)
+
+        rst_cnt = self.fwd_rst_count + self.bwd_rst_count
+        fwd_seg_min = self.fwd_seg_size_min if self.fwd_seg_size_min != float('inf') else 0
+        init_fwd = self.init_fwd_win_byts if self.init_fwd_win_byts != -1 else 0
+        init_bwd = self.init_bwd_win_byts if self.init_bwd_win_byts != -1 else 0
+
+        return np.array([
+            bwd_max,               # Bwd Pkt Len Max
+            bwd_mean,              # Bwd Pkt Len Mean
+            bwd_std,               # Bwd Pkt Len Std
+            pkt_max,               # Pkt Len Max
+            rst_cnt,               # RST Flag Cnt
+            self.ece_count,        # ECE Flag Cnt
+            init_fwd,              # Init Fwd Win Byts
+            init_bwd,              # Init Bwd Win Byts
+            self.fwd_act_data_pkts,# Fwd Act Data Pkts
+            fwd_seg_min,           # Fwd Seg Size Min
+        ], dtype=np.float32)
+
     def get_features(self):
-        """Retorna dicionário com todas as 78 features"""
-        
+        """Mantém as 78 features originais — não alterar"""
         duration = (self.end_time - self.start_time) if self.start_time else 0
-        
         fwd_mean, fwd_std, fwd_min, fwd_max = self._calculate_stats(self.fwd_packet_sizes)
         bwd_mean, bwd_std, bwd_min, bwd_max = self._calculate_stats(self.bwd_packet_sizes)
         all_mean, all_std, all_min, all_max = self._calculate_stats(self.all_packet_sizes)
-        
         iat_mean, iat_std, iat_min, iat_max = self._calculate_stats(self.iat_list)
         fwd_iat_mean, fwd_iat_std, fwd_iat_min, fwd_iat_max = self._calculate_stats(self.fwd_iat_list)
         bwd_iat_mean, bwd_iat_std, bwd_iat_min, bwd_iat_max = self._calculate_stats(self.bwd_iat_list)
-        
         fwd_iat_total = sum(self.fwd_iat_list) if self.fwd_iat_list else 0
         bwd_iat_total = sum(self.bwd_iat_list) if self.bwd_iat_list else 0
-        
         packet_rate = self.total_packets / duration if duration > 0 else 0
         byte_rate = self.total_bytes / duration if duration > 0 else 0
         fwd_packet_rate = self.fwd_packets / duration if duration > 0 else 0
         bwd_packet_rate = self.bwd_packets / duration if duration > 0 else 0
-        
         down_up_ratio = self.bwd_packets / self.fwd_packets if self.fwd_packets > 0 else 0
-        
         fwd_avg_seg_size = self.fwd_seg_size_sum / self.fwd_seg_size_count if self.fwd_seg_size_count > 0 else 0
         bwd_avg_seg_size = self.bwd_seg_size_sum / self.bwd_seg_size_count if self.bwd_seg_size_count > 0 else 0
-        
         fwd_avg_win = self.fwd_win_bytes / self.fwd_win_count if self.fwd_win_count > 0 else 0
         bwd_avg_win = self.bwd_win_bytes / self.bwd_win_count if self.bwd_win_count > 0 else 0
-        
         subflow_fwd_avg_packets = np.mean(self.subflow_fwd_packets) if self.subflow_fwd_packets else 0
         subflow_fwd_avg_bytes = np.mean(self.subflow_fwd_bytes) if self.subflow_fwd_bytes else 0
         subflow_bwd_avg_packets = np.mean(self.subflow_bwd_packets) if self.subflow_bwd_packets else 0
         subflow_bwd_avg_bytes = np.mean(self.subflow_bwd_bytes) if self.subflow_bwd_bytes else 0
-        
         active_mean, active_std, active_min, active_max = self._calculate_stats(self.active_times)
         idle_mean, idle_std, idle_min, idle_max = self._calculate_stats(self.idle_times)
-        
+
         return {
             'Flow Duration': duration,
             'Total Fwd Packets': self.fwd_packets,
@@ -365,61 +374,44 @@ class Flow:
             'Dst Port': self.dst_port,
             'Protocol': self.protocol
         }
-    
+
     def get_legado_features(self):
-        """Extrai as 14 features do modelo antigo a partir do fluxo"""
+        """Mantém as 14 features do modelo antigo"""
         if not self.packets:
             return [0] * 14
-        
         pkt = self.packets[0]
         last_time = self.packets[-1].time if len(self.packets) > 1 else None
-        
         feat = [0] * 14
-        
         feat[0] = len(pkt)
-        
         if IP in pkt:
             ip = pkt[IP]
             feat[1] = ip.proto
             feat[2] = ip.ttl
             try:
-                last_octet = int(ip.src.split('.')[-1])
-                feat[8] = last_octet / 255.0
+                feat[8] = int(ip.src.split('.')[-1]) / 255.0
             except:
                 feat[8] = 0
-        
         if TCP in pkt:
             tcp = pkt[TCP]
             feat[3] = tcp.window
             feat[4] = int(tcp.flags)
             feat[5] = tcp.sport
             feat[6] = tcp.dport
-            feat[9] = 1 if tcp.flags.S else 0
+            feat[9]  = 1 if tcp.flags.S else 0
             feat[10] = 1 if tcp.flags.A else 0
             feat[11] = 1 if tcp.flags.F else 0
             feat[12] = 1 if tcp.flags.R else 0
-        
         elif UDP in pkt:
-            udp = pkt[UDP]
-            feat[5] = udp.sport
-            feat[6] = udp.dport
-        
+            feat[5] = pkt[UDP].sport
+            feat[6] = pkt[UDP].dport
         if Raw in pkt:
             feat[7] = len(pkt[Raw].load)
-        
         if last_time:
             feat[13] = pkt.time - last_time
-        
         return feat
 
 
-# ============================================
-# CLASSE FLOWEXTRACTOR - GERENCIA FLUXOS
-# ============================================
-
 class FlowExtractor:
-    """Extrator de features por fluxo - suporta modo legado (14 features)"""
-    
     def __init__(self, timeout=60, modo_legado=False):
         self.flows = {}
         self.timeout = timeout
@@ -427,82 +419,55 @@ class FlowExtractor:
         self.modo_legado = modo_legado
         self.global_src_ports = defaultdict(set)
         self.global_dst_ports = defaultdict(set)
-    
+
     def get_flow_key(self, pkt):
         if IP not in pkt:
             return None
-        
         ip = pkt[IP]
-        src_ip = ip.src
-        dst_ip = ip.dst
-        
+        src_ip, dst_ip = ip.src, ip.dst
         if TCP in pkt:
-            proto = 6
-            src_port = pkt[TCP].sport
-            dst_port = pkt[TCP].dport
+            proto, src_port, dst_port = 6, pkt[TCP].sport, pkt[TCP].dport
         elif UDP in pkt:
-            proto = 17
-            src_port = pkt[UDP].sport
-            dst_port = pkt[UDP].dport
+            proto, src_port, dst_port = 17, pkt[UDP].sport, pkt[UDP].dport
         elif ICMP in pkt:
-            proto = 1
-            src_port = 0
-            dst_port = 0
+            proto, src_port, dst_port = 1, 0, 0
         else:
-            proto = 0
-            src_port = 0
-            dst_port = 0
-        
+            proto, src_port, dst_port = 0, 0, 0
         if src_ip < dst_ip:
             return (src_ip, dst_ip, src_port, dst_port, proto)
-        else:
-            return (dst_ip, src_ip, dst_port, src_port, proto)
-    
+        return (dst_ip, src_ip, dst_port, src_port, proto)
+
     def process_packet(self, pkt, timestamp):
         key = self.get_flow_key(pkt)
         if key is None:
             return None
-        
         if key not in self.flows:
-            self.flows[key] = Flow(
-                src_ip=key[0], dst_ip=key[1],
-                src_port=key[2], dst_port=key[3],
-                protocol=key[4]
-            )
-        
+            self.flows[key] = Flow(key[0], key[1], key[2], key[3], key[4])
         flow = self.flows[key]
         flow.add_packet(pkt, timestamp)
         self._cleanup_old_flows(timestamp)
-        
         return flow
-    
+
     def _cleanup_old_flows(self, current_time):
         to_remove = []
         for key, flow in self.flows.items():
             if flow.last_packet_time and (current_time - flow.last_packet_time) > self.timeout:
                 self.completed_flows.append(flow)
                 to_remove.append(key)
-        
         for key in to_remove:
             del self.flows[key]
-    
+
     def get_completed_flows(self):
-        """Retorna fluxos completados (como objetos Flow)"""
         flows = self.completed_flows.copy()
         self.completed_flows = []
         return flows
-    
+
     def get_completed_legado_features(self):
-        """Retorna features legado (14) para fluxos completados"""
-        features = []
-        for flow in self.completed_flows:
-            features.append(flow.get_legado_features())
-        
+        features = [flow.get_legado_features() for flow in self.completed_flows]
         self.completed_flows = []
         return np.array(features, dtype=np.float32)
-    
+
     def get_feature_names(self):
-        """Retorna nomes das 78 features"""
         return [
             'Flow Duration', 'Total Fwd Packets', 'Total Backward Packets',
             'Total Length of Fwd Packets', 'Total Length of Bwd Packets',
@@ -530,13 +495,8 @@ class FlowExtractor:
         ]
 
 
-# ============================================
-# CLASSE LEGADO PARA COMPATIBILIDADE
-# ============================================
-
 class ScapyExtractor:
     """Extrator LEGADO para modelos com 14 features (por pacote)"""
-    
     def __init__(self):
         self.feature_names = [
             'packet_size', 'protocol', 'ttl', 'window_size',
@@ -544,59 +504,45 @@ class ScapyExtractor:
             'ip_entropy', 'flag_syn', 'flag_ack', 'flag_fin',
             'flag_rst', 'inter_arrival'
         ]
-    
+
     def extract_from_pcap(self, pcap_path, max_packets=None):
         from scapy.all import rdpcap
-        
         packets = rdpcap(str(pcap_path))
-        if max_packets and len(packets) > max_packets:
+        if max_packets:
             packets = packets[:max_packets]
-        
         features = []
         last_time = None
-        
         for pkt in packets:
-            feat = self._extract_packet_features(pkt, last_time)
-            features.append(feat)
+            features.append(self._extract_packet_features(pkt, last_time))
             last_time = pkt.time
-        
         return np.array(features, dtype=np.float32)
-    
+
     def _extract_packet_features(self, pkt, last_time):
         feat = [0] * 14
-        
         feat[0] = len(pkt)
-        
         if IP in pkt:
             ip = pkt[IP]
             feat[1] = ip.proto
             feat[2] = ip.ttl
             try:
-                last_octet = int(ip.src.split('.')[-1])
-                feat[8] = last_octet / 255.0
+                feat[8] = int(ip.src.split('.')[-1]) / 255.0
             except:
                 feat[8] = 0
-        
         if TCP in pkt:
             tcp = pkt[TCP]
             feat[3] = tcp.window
             feat[4] = int(tcp.flags)
             feat[5] = tcp.sport
             feat[6] = tcp.dport
-            feat[9] = 1 if tcp.flags.S else 0
+            feat[9]  = 1 if tcp.flags.S else 0
             feat[10] = 1 if tcp.flags.A else 0
             feat[11] = 1 if tcp.flags.F else 0
             feat[12] = 1 if tcp.flags.R else 0
-        
         elif UDP in pkt:
-            udp = pkt[UDP]
-            feat[5] = udp.sport
-            feat[6] = udp.dport
-        
+            feat[5] = pkt[UDP].sport
+            feat[6] = pkt[UDP].dport
         if Raw in pkt:
             feat[7] = len(pkt[Raw].load)
-        
         if last_time:
             feat[13] = pkt.time - last_time
-        
         return feat

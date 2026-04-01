@@ -69,8 +69,8 @@ def enviar_email(config: NotificationConfig, evento: LogEvento):
     try:
         msg = MIMEMultipart()
         msg["Subject"] = f"[AEGIS] Alerta {evento.severidade.value.upper()} - {evento.src_ip}"
-        msg["From"]    = config.smtp_username
-        msg["To"]      = config.smtp_username
+        msg["From"] = config.smtp_username
+        msg["To"] = config.smtp_username
         msg.attach(MIMEText(montar_mensagem_email(evento), "plain", "us-ascii"))
 
         with smtplib.SMTP(servidor, 587) as server:

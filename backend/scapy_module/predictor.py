@@ -1,181 +1,146 @@
 # backend/scapy_module/predictor.py
-# Predictor para modelo com 78 features (fluxos)
 
 import pickle
 import numpy as np
+import pandas as pd
 from pathlib import Path
-from datetime import datetime
-import json
 import sys
 
-PROJECT_PATH = Path(__file__).parent.parent.parent
-sys.path.append(str(PROJECT_PATH))
+PROJECT_PATH = Path(__file__).resolve().parent.parent.parent
+MODEL_PATH = PROJECT_PATH / "models" / "random_forest_server_model.pkl"
 
-from backend.scapy_module.extractor import FlowExtractor
+LABEL_MAP = {
+    0: "Benign",
+    1: "Bot",
+    2: "Brute Force -Web",
+    3: "Brute Force -XSS",
+    4: "FTP-BruteForce",
+    5: "Infilteration",
+    6: "SQL Injection",
+    7: "SSH-Bruteforce"
+}
 
 class ModelPredictor:
-    """
-    Classifica fluxos usando modelo treinado (78 features)
-    """
-    
+
     def __init__(self, model_path=None):
-        """
-        Carrega o modelo .pkl e configura o extrator
-        """
-        if model_path is None:
-            self.model_path = PROJECT_PATH / "models" / "modelo_principal.pkl"
-        else:
-            self.model_path = Path(model_path)
-        
-        print(f"📂 A carregar modelo: {self.model_path}")
-        
-        if not self.model_path.exists():
-            raise FileNotFoundError(f"Modelo não encontrado: {self.model_path}")
-        
-        # Carregar modelo
-        with open(self.model_path, 'rb') as f:
-            self.model_data = pickle.load(f)
-        
-        # Extrair informações do modelo
-        self.model = None
-        self.feature_names = None
-        self.acuracia = 'desconhecida'
-        self.scaler = None
-        
-        # CASO 1: É um dicionário
-        if isinstance(self.model_data, dict):
-            print("📋 Modelo carregado como dicionário")
-            print(f"   Chaves disponíveis: {list(self.model_data.keys())}")
-            
-            # Tentar encontrar o modelo
-            if 'modelo' in self.model_data:
-                self.model = self.model_data['modelo']
-                print("   ✅ Usando chave 'modelo'")
-            elif 'model' in self.model_data:
-                self.model = self.model_data['model']
-                print("   ✅ Usando chave 'model'")
-            elif 'classifier' in self.model_data:
-                self.model = self.model_data['classifier']
-                print("   ✅ Usando chave 'classifier'")
-            else:
-                # Procurar qualquer objeto com predict
-                for key, value in self.model_data.items():
-                    if hasattr(value, 'predict'):
-                        self.model = value
-                        print(f"   ✅ Encontrado modelo na chave: '{key}'")
+        path = Path(model_path) if model_path else MODEL_PATH
+
+        print(f"📂 A carregar modelo: {path.name}")
+
+        if not path.exists():
+            raise FileNotFoundError(f"Modelo não encontrado: {path}")
+
+        with path.open('rb') as f:
+            dados = pickle.load(f)
+
+        if isinstance(dados, dict):
+            print(f"   Chaves: {list(dados.keys())}")
+            self.model  = dados.get('modelo') or dados.get('model') or dados.get('classifier')
+            self.scaler = dados.get('scaler', None)
+            self.acuracia = dados.get('acuracia', 'desconhecida')
+
+            if self.model is None:
+                for v in dados.values():
+                    if hasattr(v, 'predict'):
+                        self.model = v
                         break
-                
-                if self.model is None:
-                    print("   ⚠️ Nenhum modelo encontrado")
-                    self.model = self.model_data
-            
-            # Carregar feature_names e acurácia
-            self.feature_names = self.model_data.get('feature_names', None)
-            self.acuracia = self.model_data.get('acuracia', 'desconhecida')
-            self.scaler = self.model_data.get('scaler', None)
-        
-        # CASO 2: É diretamente o modelo
         else:
-            self.model = self.model_data
-            print("📋 Modelo carregado diretamente")
-            
-            if hasattr(self.model, 'feature_names_in_'):
-                self.feature_names = list(self.model.feature_names_in_)
-                print(f"   ✅ Features encontradas: {len(self.feature_names)}")
-        
-        # Verificar se o modelo tem método predict
+            self.model    = dados
+            self.scaler   = None
+            self.acuracia = 'desconhecida'
+
         if not hasattr(self.model, 'predict'):
-            print("❌ ERRO: O objeto carregado NÃO tem método 'predict'")
-            print(f"   Tipo do objeto: {type(self.model)}")
-        else:
-            print(f"✅ Modelo carregado com sucesso!")
-            print(f"   Acurácia: {self.acuracia}")
-            
-            if hasattr(self.model, 'n_features_in_'):
-                print(f"   Features esperadas: {self.model.n_features_in_}")
-            elif self.feature_names:
-                print(f"   Features esperadas: {len(self.feature_names)}")
-        
-        # Inicializar extrator de fluxos
-        self.flow_extractor = FlowExtractor()
-    
+            raise ValueError(f"❌ Objecto carregado não tem método predict. Tipo: {type(self.model)}")
+
+        n = getattr(self.model, 'n_features_in_', '?')
+        print(f"✅ Modelo carregado!")
+        print(f"   Tipo:      {type(self.model).__name__}")
+        print(f"   Features:  {n}")
+        print(f"   Classes:   {list(self.model.classes_) if hasattr(self.model, 'classes_') else '?'}")
+        print(f"   Acurácia:  {self.acuracia}")
+        print(f"   Scaler:    {'Sim' if self.scaler else 'Não'}")
+
+        if n != '?' and n != 10:
+            print(f"⚠️  ATENÇÃO: modelo espera {n} features mas o extractor fornece 10.")
+
+        # Guardar os nomes das features do modelo (se existirem)
+        self.feature_names = list(getattr(self.model, 'feature_names_in_', [])) or None
+
+    def _to_dataframe(self, X: np.ndarray) -> pd.DataFrame:
+        """
+        Converte numpy array para DataFrame com os nomes de features do modelo,
+        eliminando o UserWarning do sklearn sobre feature names.
+        """
+        if self.feature_names:
+            return pd.DataFrame(X, columns=self.feature_names)
+        return pd.DataFrame(X)
+
     def predict_flow(self, flow):
         """
-        Classifica um fluxo individual
+        Recebe um objecto Flow e devolve (label_int, label_str, confiança).
         """
-        features = flow.get_features()
-        feature_values = np.array([list(features.values())], dtype=np.float32)
-        
-        # Normalizar se scaler disponível
+        X = flow.get_model_features().reshape(1, -1)
+        X_df = self._to_dataframe(X)
+
         if self.scaler:
-            feature_values = self.scaler.transform(feature_values)
-        
-        # Verificar número de features
-        expected_features = self.model.n_features_in_ if hasattr(self.model, 'n_features_in_') else len(self.feature_names)
-        if feature_values.shape[1] != expected_features:
-            print(f"⚠️ Número de features diferente! Esperado: {expected_features}, Obtido: {feature_values.shape[1]}")
-            # Ajustar
-            if feature_values.shape[1] > expected_features:
-                feature_values = feature_values[:, :expected_features]
-            else:
-                pad = np.zeros((1, expected_features - feature_values.shape[1]))
-                feature_values = np.hstack([feature_values, pad])
-        
-        pred = self.model.predict(feature_values)[0]
-        score = self.model.score_samples(feature_values)[0] if hasattr(self.model, 'score_samples') else 0
-        
-        return pred, score
-    
+            X_scaled = self.scaler.transform(X_df)
+            X_df = self._to_dataframe(X_scaled)
+
+        pred_int = int(self.model.predict(X_df)[0])
+        pred_str = LABEL_MAP.get(pred_int, f"Desconhecido ({pred_int})")
+
+        if hasattr(self.model, 'predict_proba'):
+            proba     = self.model.predict_proba(X_df)[0]
+            confianca = float(np.max(proba))
+        else:
+            confianca = 1.0
+
+        return pred_int, pred_str, confianca
+
     def predict_flows(self, flows):
         """
-        Classifica múltiplos fluxos
+        Classifica uma lista de fluxos de uma vez.
+        Devolve lista de (label_int, label_str, confiança).
         """
-        features_list = []
-        for flow in flows:
-            features = flow.get_features()
-            features_list.append(list(features.values()))
-        
-        X = np.array(features_list, dtype=np.float32)
-        
-        # Normalizar
+        if not flows:
+            return []
+
+        X = np.vstack([f.get_model_features() for f in flows])
+        X_df = self._to_dataframe(X)
+
         if self.scaler:
-            X = self.scaler.transform(X)
-        
-        # Verificar número de features
-        expected_features = self.model.n_features_in_ if hasattr(self.model, 'n_features_in_') else len(self.feature_names)
-        if X.shape[1] != expected_features:
-            if X.shape[1] > expected_features:
-                X = X[:, :expected_features]
-            else:
-                pad = np.zeros((X.shape[0], expected_features - X.shape[1]))
-                X = np.hstack([X, pad])
-        
-        predictions = self.model.predict(X)
-        scores = self.model.score_samples(X) if hasattr(self.model, 'score_samples') else np.zeros(len(X))
-        
-        return predictions, scores
-    
-    def predict_flow_features(self, feature_values):
-        """
-        Classifica usando array de features já extraído
-        """
-        X = np.array([feature_values], dtype=np.float32)
-        
-        if self.scaler:
-            X = self.scaler.transform(X)
-        
-        pred = self.model.predict(X)[0]
-        score = self.model.score_samples(X)[0] if hasattr(self.model, 'score_samples') else 0
-        
-        return pred, score
+            X_scaled = self.scaler.transform(X_df)
+            X_df = self._to_dataframe(X_scaled)
+
+        preds = self.model.predict(X_df)
+
+        if hasattr(self.model, 'predict_proba'):
+            probas    = self.model.predict_proba(X_df)
+            confianças = np.max(probas, axis=1)
+        else:
+            confianças = np.ones(len(preds))
+
+        resultado = []
+        for pred_int, conf in zip(preds, confianças):
+            pred_int = int(pred_int)
+            resultado.append((
+                pred_int,
+                LABEL_MAP.get(pred_int, str(pred_int)),
+                float(conf)
+            ))
+
+        return resultado
+
+    def is_attack(self, pred_int):
+        """Devolve True se a previsão não for Benign."""
+        return pred_int != 0
+
+    def get_label(self, pred_int):
+        """Devolve o nome do label dado o inteiro."""
+        return LABEL_MAP.get(pred_int, f"Desconhecido ({pred_int})")
 
 
-# Para testar diretamente
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        model_path = sys.argv[1] if len(sys.argv) > 1 else None
-        predictor = ModelPredictor(model_path)
-        print("✅ Predictor pronto para classificar fluxos!")
-    else:
-        predictor = ModelPredictor()
-        print("✅ Predictor carregado com modelo padrão!")
+    path = sys.argv[1] if len(sys.argv) > 1 else None
+    p = ModelPredictor(path)
+    print("✅ Predictor pronto!")

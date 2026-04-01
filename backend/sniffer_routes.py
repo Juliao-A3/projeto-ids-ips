@@ -5,7 +5,6 @@ import threading
 import sys
 from pathlib import Path
 
-# ← garante que imports locais funcionam sempre
 sys.path.insert(0, str(Path(__file__).parent))
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException
@@ -17,27 +16,28 @@ from models import IpsBloqueados, LogEvento, Alerta, Severidade, Status, Network
 from sqlalchemy.orm import Session
 from notification_service import notificar_alerta
 from scapy_module.sniffer_realtime import PROJECT_PATH, IPSRealtime
+import shutil
+import json
 
 sniffer_router = APIRouter(prefix="/sniffer", tags=["Sniffer"])
 
-# ── Estado global 
+# ── Estado global ────────────────────────────────────────────────────────────
 _ips_instance:   Optional[IPSRealtime]      = None
 _sniffer_thread: Optional[threading.Thread] = None
 _ws_clients:     list[WebSocket]            = []
 _session_factory                            = None
 
-# ── Event loop dedicado para WebSocket 
+# ── Event loop dedicado ──────────────────────────────────────────────────────
 _loop: Optional[asyncio.AbstractEventLoop] = None
 
 def _get_loop():
     global _loop
     if _loop is None or _loop.is_closed():
         _loop = asyncio.new_event_loop()
-        t = threading.Thread(target=_loop.run_forever, daemon=True)
-        t.start()
+        threading.Thread(target=_loop.run_forever, daemon=True).start()
     return _loop
 
-# ── Schemas
+# ── Schemas ──────────────────────────────────────────────────────────────────
 class SnifferStartSchema(BaseModel):
     interface: Optional[str] = None
     filtro:    Optional[str] = None
@@ -46,7 +46,10 @@ class SnifferStartSchema(BaseModel):
 class WhitelistSchema(BaseModel):
     ip: str
 
-# ── Broadcast WebSocket 
+class ModeloAtivoSchema(BaseModel):
+    nome: str
+
+# ── Broadcast WebSocket ──────────────────────────────────────────────────────
 async def _broadcast_pacote(pkt_info: dict):
     mortos = []
     for ws in _ws_clients:
@@ -58,38 +61,50 @@ async def _broadcast_pacote(pkt_info: dict):
         if ws in _ws_clients:
             _ws_clients.remove(ws)
 
-# ── Callback do Scapy 
+# ── Callback do Scapy ────────────────────────────────────────────────────────
 def _callback_pacote(pkt_info: dict):
-    if pkt_info.get("tipo") == "anomalia" and _session_factory:
+    """
+    Chamado pela thread do Scapy para cada fluxo processado.
+    O Random Forest envia tipo='ataque' (em vez de 'anomalia').
+    """
+    # ── Guardar no banco se for ataque ──────────────────────────────────────
+    if pkt_info.get("tipo") == "ataque" and _session_factory:
         try:
             session: Session = next(_session_factory())
 
+            # Usa o label do RF como assinatura (ex: "SSH-Bruteforce")
+            assinatura = f"RF_{pkt_info.get('label', 'ATAQUE').upper().replace(' ', '_').replace('-', '_')}"
+
             evento = LogEvento(
-                src_ip = pkt_info.get("src_ip", "desconhecido"),
-                dest_ip = pkt_info.get("dst_ip", "desconhecido"),
-                src_port = pkt_info.get("src_port", 0),
-                dest_port = pkt_info.get("dst_port", 0),
-                protocolo = pkt_info.get("protocolo", "OUTRO"),
-                assinatura = "ANOMALIA_IA",
+                src_ip     = pkt_info.get("src_ip", "desconhecido"),
+                dest_ip    = pkt_info.get("dst_ip", "desconhecido"),
+                src_port   = pkt_info.get("src_port", 0),
+                dest_port  = pkt_info.get("dst_port", 0),
+                protocolo  = pkt_info.get("protocolo", "OUTRO"),
+                assinatura = assinatura,
                 severidade = Severidade.ALTA,
-                status = Status.PENDENTE,
+                status     = Status.PENDENTE,
             )
             session.add(evento)
             session.flush()
 
             alerta = Alerta(
-                evento_id = evento.id,
-                ip_origem = pkt_info.get("src_ip", "desconhecido"),
-                ip_destino = pkt_info.get("dst_ip", "desconhecido"),
-                protocolo = pkt_info.get("protocolo", "OUTRO"),
-                porta_de_comunicacao = pkt_info.get("dst_port", 0),
+                evento_id             = evento.id,
+                ip_origem             = pkt_info.get("src_ip", "desconhecido"),
+                ip_destino            = pkt_info.get("dst_ip", "desconhecido"),
+                protocolo             = pkt_info.get("protocolo", "OUTRO"),
+                porta_de_comunicacao  = pkt_info.get("dst_port", 0),
             )
             session.add(alerta)
 
             if pkt_info.get("bloqueado"):
                 ip_block = IpsBloqueados(
                     ip_bloqueado = pkt_info.get("src_ip"),
-                    motivo = "Bloqueio automatico - anomalia detetada pelo modelo IA",
+                    motivo       = (
+                        f"Bloqueio automático — "
+                        f"{pkt_info.get('label', 'ataque')} "
+                        f"({pkt_info.get('confianca', 0)}% confiança)"
+                    ),
                 )
                 session.add(ip_block)
 
@@ -105,12 +120,13 @@ def _callback_pacote(pkt_info: dict):
         finally:
             session.close()
 
+    # ── Enviar para todos os clientes WebSocket ──────────────────────────────
     asyncio.run_coroutine_threadsafe(
         _broadcast_pacote(pkt_info),
         _get_loop()
     )
 
-# ── Helper — lê config de rede do banco
+# ── Helper — lê config de rede do banco ─────────────────────────────────────
 def _ler_network_config():
     if not _session_factory:
         return None
@@ -123,7 +139,7 @@ def _ler_network_config():
         print(f"⚠ Erro ao ler config de rede: {e}")
         return None
 
-# ── ROTAS 
+# ── ROTAS ────────────────────────────────────────────────────────────────────
 
 @sniffer_router.post("/start")
 async def start_sniffer(
@@ -133,9 +149,8 @@ async def start_sniffer(
     global _ips_instance, _sniffer_thread
 
     if _ips_instance and _ips_instance.running:
-        raise HTTPException(status_code=400, detail="Sniffer ja esta a correr.")
+        raise HTTPException(status_code=400, detail="Sniffer já está a correr.")
 
-    # lê config de rede guardada pelo utilizador
     net_config      = _ler_network_config()
     interface_final = dados.interface
     filtro_final    = dados.filtro
@@ -145,8 +160,6 @@ async def start_sniffer(
             interface_final = net_config.capture_interface
         if not filtro_final and net_config.bpf_filter:
             filtro_final = net_config.bpf_filter
-        print(f"📡 Interface da config: {interface_final or 'todas'}")
-        print(f"🔍 Filtro BPF da config: {filtro_final or 'nenhum'}")
 
     _ips_instance = IPSRealtime(
         interface = interface_final,
@@ -155,18 +168,12 @@ async def start_sniffer(
         callback  = _callback_pacote,
     )
 
-    # aplica whitelist da config de rede
     if net_config and net_config.whitelist:
-        ips_whitelist = [
-            ip.strip()
-            for ip in net_config.whitelist.split(',')
-            if ip.strip()
-        ]
-        for ip in ips_whitelist:
-            _ips_instance.adicionar_whitelist(ip)
-        print(f"✅ Whitelist carregada: {ips_whitelist}")
+        for ip in net_config.whitelist.split(','):
+            ip = ip.strip()
+            if ip:
+                _ips_instance.adicionar_whitelist(ip)
 
-    # 127.0.0.1 sempre na whitelist
     _ips_instance.adicionar_whitelist('127.0.0.1')
 
     _sniffer_thread = threading.Thread(
@@ -178,7 +185,7 @@ async def start_sniffer(
     return {
         "message":   "Sniffer iniciado",
         "interface": interface_final or "todas",
-        "filtro":    filtro_final or "nenhum",
+        "filtro":    filtro_final    or "nenhum",
     }
 
 
@@ -187,10 +194,8 @@ async def stop_sniffer(
     usuario = Depends(require_role(["admin"]))
 ):
     global _ips_instance
-
     if not _ips_instance or not _ips_instance.running:
-        raise HTTPException(status_code=400, detail="Sniffer nao esta a correr.")
-
+        raise HTTPException(status_code=400, detail="Sniffer não está a correr.")
     _ips_instance.parar()
     return {"message": "Sniffer parado com sucesso"}
 
@@ -201,11 +206,9 @@ async def reboot_sniffer(
     usuario = Depends(require_role(["admin"]))
 ):
     global _ips_instance
-
     if _ips_instance and _ips_instance.running:
         _ips_instance.parar()
         import time; time.sleep(1)
-
     return await start_sniffer(dados, usuario)
 
 
@@ -232,20 +235,23 @@ async def get_status(
         }
 
     ips = _ips_instance
+    # contador_fluxos é o nome correcto no IPSRealtime actualizado
+    total = ips.contador_fluxos
+
     return {
         "running":            ips.running,
-        "contador":           ips.contador,
+        "contador":           total,
         "anomalias":          ips.anomalias,
         "bloqueios":          ips.bloqueios,
-        "taxa_anomalia":      round((ips.anomalias / ips.contador * 100), 2) if ips.contador > 0 else 0,
+        "taxa_anomalia":      round((ips.anomalias / total * 100), 2) if total > 0 else 0,
         "ips_bloqueados":     list(ips.ips_bloqueados),
         "whitelist":          list(ips.whitelist),
         "stats":              ips.stats,
         "interface_ativas":   [ips.get_friendly_interface_name(i) for i in ips.interface_ativas],
         "interface_inativas": [ips.get_friendly_interface_name(i) for i in ips.interface_inativas],
-        "portas_tcp":         dict(sorted(ips.portas_tcp.items(), key=lambda x: x[1], reverse=True)[:10]),
-        "portas_udp":         dict(sorted(ips.portas_udp.items(), key=lambda x: x[1], reverse=True)[:10]),
-        "ultimos_pacotes":    list(ips.ultimos_pacotes)[-20:],
+        "portas_tcp":         dict(sorted(ips.portas_tcp.items(),  key=lambda x: x[1], reverse=True)[:10]),
+        "portas_udp":         dict(sorted(ips.portas_udp.items(),  key=lambda x: x[1], reverse=True)[:10]),
+        "ultimos_pacotes":    list(ips.ultimos_fluxos)[-20:],   # ← corrigido
         "contagem_ips":       dict(sorted(ips.contagem_ips.items(), key=lambda x: x[1], reverse=True)[:10]),
     }
 
@@ -256,9 +262,9 @@ async def add_whitelist(
     usuario = Depends(require_role(["admin"]))
 ):
     if not _ips_instance:
-        raise HTTPException(status_code=400, detail="Sniffer nao esta ativo.")
+        raise HTTPException(status_code=400, detail="Sniffer não está ativo.")
     _ips_instance.adicionar_whitelist(dados.ip)
-    return {"message": f"IP {dados.ip} adicionado a whitelist"}
+    return {"message": f"IP {dados.ip} adicionado à whitelist"}
 
 
 @sniffer_router.post("/whitelist/remove")
@@ -267,12 +273,12 @@ async def remove_whitelist(
     usuario = Depends(require_role(["admin"]))
 ):
     if not _ips_instance:
-        raise HTTPException(status_code=400, detail="Sniffer nao esta ativo.")
+        raise HTTPException(status_code=400, detail="Sniffer não está ativo.")
     _ips_instance.remover_whitelist(dados.ip)
     return {"message": f"IP {dados.ip} removido da whitelist"}
 
 
-# ── WebSocket 
+# ── WebSocket ─────────────────────────────────────────────────────────────────
 @sniffer_router.websocket("/ws")
 async def sniffer_ws(websocket: WebSocket, token: str = ""):
     if not _session_factory:
@@ -294,7 +300,7 @@ async def sniffer_ws(websocket: WebSocket, token: str = ""):
             await websocket.send_json({
                 "tipo":      "status",
                 "running":   _ips_instance.running,
-                "contador":  _ips_instance.contador,
+                "contador":  _ips_instance.contador_fluxos,  # ← corrigido
                 "anomalias": _ips_instance.anomalias,
             })
 
@@ -307,15 +313,8 @@ async def sniffer_ws(websocket: WebSocket, token: str = ""):
     finally:
         session.close()
 
-from pydantic import BaseModel
-import shutil
 
-import shutil
-import json
-
-class ModeloAtivoSchema(BaseModel):
-    nome: str
-
+# ── Activar modelo ────────────────────────────────────────────────────────────
 @sniffer_router.post("/modelo/ativar")
 async def ativar_modelo(
     dados: ModeloAtivoSchema,
@@ -324,13 +323,14 @@ async def ativar_modelo(
     modelo_path = PROJECT_PATH / "models" / dados.nome
     if not modelo_path.exists():
         raise HTTPException(status_code=404, detail="Modelo não encontrado.")
-    
-    # copia para best_model.pkl
+
     shutil.copy(modelo_path, PROJECT_PATH / "models" / "best_model.pkl")
-    
-    # ← guarda o nome original num ficheiro de referência
+
     ref_path = PROJECT_PATH / "models" / "modelo_ativo.json"
     with open(ref_path, 'w') as f:
-        json.dump({"nome": dados.nome, "ativado_em": datetime.now().isoformat()}, f)
-    
-    return {"message": f"Modelo {dados.nome} ativado com sucesso!"}  
+        json.dump({
+            "nome":       dados.nome,
+            "ativado_em": datetime.now().isoformat()
+        }, f)
+
+    return {"message": f"Modelo {dados.nome} ativado com sucesso!"}

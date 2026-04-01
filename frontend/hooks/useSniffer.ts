@@ -56,15 +56,15 @@ export function useSniffer() {
     const token = localStorage.getItem('access_token');
     const ws = new WebSocket(`ws://localhost:8000/sniffer/ws?token=${token}`);
 
-    ws.onmessage = (e) => {
-      const data = JSON.parse(e.data);
-      if (data.tipo === 'anomalia' || data.tipo === 'normal') {
-        setPacotes(prev => [data, ...prev].slice(0, 50));
-      }
-      if (data.tipo === 'status') {
-        setStatus(prev => ({ ...prev, ...data }));
-      }
-    };
+  ws.onmessage = (e) => {
+    const data = JSON.parse(e.data);
+    if (data.tipo === 'ataque' || data.tipo === 'normal') {  // ← era 'anomalia'
+      setPacotes(prev => [data, ...prev].slice(0, 50));
+    }
+    if (data.tipo === 'status') {
+      setStatus(prev => ({ ...prev, ...data }));
+    }
+  };
 
     ws.onerror = () => setError('Erro na ligação WebSocket');
     ws.onclose = () => {

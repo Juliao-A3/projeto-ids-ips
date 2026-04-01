@@ -30,10 +30,10 @@ api.interceptors.response.use(
 
     const ignorarLogout = IGNORAR_LOGOUT.some(rota =>
       originalRequest.url?.includes(rota)
-    );
+    ); 
 
     if (error.response?.status === 401 && !originalRequest._retry && !ignorarLogout) {
-      originalRequest._retry = true;
+      originalRequest._retry = true; 
 
       try {
         const refreshToken = localStorage.getItem("refresh_token");

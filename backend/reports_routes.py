@@ -1,14 +1,17 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from backend.dependencies import get_session, require_role
+from backend.dependencies import get_session, require_role, verificar_token_query
 from backend.models import LogEvento, Alerta, IpsBloqueados, Status, Severidade, Usuario
 from datetime import datetime, timezone, timedelta
 from fastapi.responses import StreamingResponse
 from backend.pdf_service import gerar_pdf
-from backend.dependencies import get_session, require_role, verificar_token_query
 
 reports_router = APIRouter(prefix='/reports', tags=['reports'])
+
+# ── Limites máximos por tipo de relatório
+LIMITE_DETALHADO = 500
+LIMITE_RESUMIDO  = 100
 
 
 def get_period_filter(period: str):
@@ -24,13 +27,12 @@ def get_period_filter(period: str):
 
 @reports_router.get('/summary')
 async def get_summary(
-    period: str = "24h",
+    period:   str = "24h",
     severity: str = "all",
-    usuario: Usuario = Depends(require_role(["admin", "analista", "operador"])),
-    session: Session = Depends(get_session)
+    usuario:  Usuario = Depends(require_role(["admin", "analista", "operador"])),
+    session:  Session = Depends(get_session)
 ):
     desde = get_period_filter(period)
-
     query = session.query(LogEvento).filter(LogEvento.timestamp >= desde)
 
     if severity != "all":
@@ -44,25 +46,24 @@ async def get_summary(
     total_bloqueados = session.query(IpsBloqueados).count()
 
     return {
-        "total_eventos":    total_eventos,
-        "criticos":         criticos,
-        "altos":            altos,
-        "medios":           medios,
-        "bloqueados":       bloqueados,
+        "total_eventos":       total_eventos,
+        "criticos":            criticos,
+        "altos":               altos,
+        "medios":              medios,
+        "bloqueados":          bloqueados,
         "total_ips_bloqueados": total_bloqueados,
     }
 
 
 @reports_router.get('/incidents')
 async def get_incidents(
-    period: str = "24h",
+    period:   str = "24h",
     severity: str = "all",
-    limit: int = 10,
-    usuario: Usuario = Depends(require_role(["admin", "analista", "operador"])),
-    session: Session = Depends(get_session)
+    limit:    int = 10,
+    usuario:  Usuario = Depends(require_role(["admin", "analista", "operador"])),
+    session:  Session = Depends(get_session)
 ):
     desde = get_period_filter(period)
-
     query = session.query(LogEvento).filter(LogEvento.timestamp >= desde)
 
     if severity != "all":
@@ -87,17 +88,15 @@ async def get_incidents(
 
 @reports_router.get('/attack-volume')
 async def get_attack_volume(
-    period: str = "24h",
+    period:  str = "24h",
     usuario: Usuario = Depends(require_role(["admin", "analista", "operador"])),
     session: Session = Depends(get_session)
 ):
     desde = get_period_filter(period)
-
-    logs = session.query(LogEvento).filter(
+    logs  = session.query(LogEvento).filter(
         LogEvento.timestamp >= desde
     ).order_by(LogEvento.timestamp).all()
 
-    # agrupa por hora
     volume = {}
     for log in logs:
         if log.timestamp:
@@ -106,47 +105,72 @@ async def get_attack_volume(
 
     return [{"time": k, "attacks": v} for k, v in sorted(volume.items())]
 
+
 @reports_router.get('/export/pdf')
 async def export_pdf(
-    period: str = "24h",
+    period:   str = "24h",
     severity: str = "all",
-    usuario: Usuario = Depends(require_role(["admin", "analista", "operador"])),
-    session: Session = Depends(get_session)
-    ):
+    tipo:     str = Query("detalhado", description="detalhado ou resumido"),
+    limite:   int = Query(500, description="Máximo de alertas no PDF"),
+    usuario:  Usuario = Depends(require_role(["admin", "analista", "operador"])),
+    session:  Session = Depends(get_session)
+):
     desde = get_period_filter(period)
     query = session.query(LogEvento).filter(LogEvento.timestamp >= desde)
 
     if severity != "all":
         query = query.filter(LogEvento.severidade == severity)
 
-    logs = query.order_by(LogEvento.timestamp.desc()).all()
+    # ── aplica limite seguro por tipo
+    if tipo == "resumido":
+        limite_final = min(limite, LIMITE_RESUMIDO)
+    else:
+        limite_final = min(limite, LIMITE_DETALHADO)
 
-    # summary
-    total    = len(logs)
-    criticos = sum(1 for l in logs if l.severidade == Severidade.CRITICA)
-    altos    = sum(1 for l in logs if l.severidade == Severidade.ALTA)
-    medios   = sum(1 for l in logs if l.severidade == Severidade.MEDIA)
-    bloqueados = sum(1 for l in logs if l.status == Status.MITIGADO)
-    total_ips  = session.query(IpsBloqueados).count()
+    # total real (sem limite) para mostrar aviso no PDF
+    total_real = query.count()
+
+    # logs limitados — os mais recentes
+    logs = query.order_by(LogEvento.timestamp.desc()).limit(limite_final).all()
+
+    # summary com totais reais (não limitados)
+    total_eventos    = total_real
+    criticos         = query.filter(LogEvento.severidade == Severidade.CRITICA).count()
+    altos            = query.filter(LogEvento.severidade == Severidade.ALTA).count()
+    medios           = query.filter(LogEvento.severidade == Severidade.MEDIA).count()
+    bloqueados       = query.filter(LogEvento.status == Status.MITIGADO).count()
+    total_ips        = session.query(IpsBloqueados).count()
 
     summary = {
-        "total_eventos": total,
-        "criticos":      criticos,
-        "altos":         altos,
-        "medios":        medios,
-        "bloqueados":    bloqueados,
+        "total_eventos":        total_eventos,
+        "criticos":             criticos,
+        "altos":                altos,
+        "medios":               medios,
+        "bloqueados":           bloqueados,
         "total_ips_bloqueados": total_ips,
+        # info de truncagem para o PDF saber
+        "truncado":             total_real > limite_final,
+        "total_real":           total_real,
+        "limite_aplicado":      limite_final,
+        "tipo_relatorio":       tipo,
     }
 
-    period_label = {"24h": "Últimas 24 Horas", "7d": "Últimos 7 Dias", "30d": "Últimos 30 Dias"}.get(period, period)
-    pdf_buf = gerar_pdf(logs, summary, period_label)
+    period_label = {
+        "24h": "Últimas 24 Horas",
+        "7d":  "Últimos 7 Dias",
+        "30d": "Últimos 30 Dias",
+    }.get(period, period)
+
+    pdf_buf = gerar_pdf(logs, summary, period_label, tipo=tipo)
+
+    nome_ficheiro = f"aegis-report-{tipo}-{period}.pdf"
 
     return StreamingResponse(
         pdf_buf,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f"attachment; filename=aegis-report-{period}.pdf",
-            "Access-Control-Allow-Origin": "http://localhost:5173",
+            "Content-Disposition":          f"attachment; filename={nome_ficheiro}",
+            "Access-Control-Allow-Origin":  "http://localhost:5173",
             "Access-Control-Allow-Credentials": "true",
         }
     )

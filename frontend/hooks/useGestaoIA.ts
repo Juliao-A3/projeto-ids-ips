@@ -20,14 +20,14 @@ export interface TreinarConfig {
 }
 
 export function useGestaoIA() {
-  const [modelo, setModelo]         = useState<ModeloInfo | null>(null);
-  const [modelos, setModelos]       = useState<any[]>([]);
-  const [estatisticas, setEstat]    = useState<any>(null);
-  const [treino, setTreino]         = useState<any>(null);
-  const [inspecao, setInspecao]     = useState<any>(null);
-  const [loading, setLoading]       = useState(false);
-  const [treinando, setTreinando]   = useState(false);
-  const [error, setError]           = useState('');
+  const [modelo, setModelo] = useState<ModeloInfo | null>(null);
+  const [modelos, setModelos] = useState<any[]>([]);
+  const [estatisticas, setEstat] = useState<any>(null);
+  const [treino, setTreino] = useState<any>(null);
+  const [inspecao, setInspecao] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [treinando, setTreinando] = useState(false);
+  const [error, setError] = useState('');
 
   // Buscar info do modelo ativo
   const fetchModelo = async () => {

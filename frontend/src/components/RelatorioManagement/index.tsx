@@ -13,29 +13,47 @@ import {
 } from './styles';
 import { api } from '../../services/api';
 
+// ── Limites por tipo de relatório
+const LIMITS = {
+  detalhado: 500,
+  resumido:  100,
+};
+
 export function ReportsManagement() {
-  const [period, setPeriod]     = useState('24h');
-  const [severity, setSeverity] = useState('all');
+  const [period, setPeriod]         = useState('24h');
+  const [severity, setSeverity]     = useState('all');
+  const [reportType, setReportType] = useState<'detalhado' | 'resumido'>('detalhado');
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfError, setPdfError]     = useState('');
 
   const { summary, incidents, volume, loading, error } = useReports(period, severity);
 
+  // ── total real de alertas vs limite aplicado
+  const totalReal  = summary?.total_eventos ?? 0;
+  const limiteAtual = LIMITS[reportType];
+  const truncado   = totalReal > limiteAtual;
+
   const handleDownloadPDF = async () => {
-  try {
+    setPdfLoading(true);
+    setPdfError('');
+    try {
       const response = await api.get(
-        `/reports/export/pdf?period=${period}&severity=${severity}`,
+        `/reports/export/pdf?period=${period}&severity=${severity}&tipo=${reportType}&limite=${limiteAtual}`,
         { responseType: 'blob' }
       );
-      
+
       const blob = new Blob([response.data], { type: 'application/pdf' });
       const link = document.createElement('a');
       link.href  = URL.createObjectURL(blob);
-      link.download = `aegis-report-${period}.pdf`;
+      link.download = `aegis-report-${reportType}-${period}.pdf`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(link.href);
     } catch {
-      console.error("Erro ao gerar PDF");
+      setPdfError('Erro ao gerar PDF. Tenta novamente.');
+    } finally {
+      setPdfLoading(false);
     }
   };
 
@@ -78,20 +96,37 @@ export function ReportsManagement() {
     <Container>
       <Header>
         <HeaderTitle>Relatórios Técnicos</HeaderTitle>
-        <GeneratePDFButton type='button' onClick={handleDownloadPDF}>
+        <GeneratePDFButton type='button' onClick={handleDownloadPDF} disabled={pdfLoading}>
           <Download size={16} />
-          GERAR RELATÓRIO PDF
+          {pdfLoading ? 'A GERAR...' : `GERAR PDF ${reportType.toUpperCase()}`}
         </GeneratePDFButton>
       </Header>
 
-      {error && (
+      {/* erros */}
+      {(error || pdfError) && (
         <div style={{
           padding: "10px 14px", margin: "0 0 12px 0",
           background: "#ef444412", border: "1px solid #ef444444",
           borderLeft: "3px solid #ef4444", borderRadius: "4px",
           fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", color: "#ef4444"
         }}>
-          ⚠ {error}
+          ⚠ {error || pdfError}
+        </div>
+      )}
+
+      {/* aviso de truncagem */}
+      {truncado && (
+        <div style={{
+          padding: "10px 14px", margin: "0 0 12px 0",
+          background: "#FFAB0012", border: "1px solid #FFAB0044",
+          borderLeft: "3px solid #FFAB00", borderRadius: "4px",
+          fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", color: "#FFAB00"
+        }}>
+          ⚑ A mostrar os {limiteAtual} alertas mais recentes de {totalReal} no total.
+          {reportType === 'resumido'
+            ? ' Muda para DETALHADO para ver até 500.'
+            : ' Exporta como CSV para ver todos.'
+          }
         </div>
       )}
 
@@ -114,10 +149,46 @@ export function ReportsManagement() {
                   options={severityOptions}
                 />
               </FiltersGrid>
-              <ViewButtonsGrid>
-                <DetailedButton>DETALHADO</DetailedButton>
-                <SummaryButton>RESUMIDO</SummaryButton>
-              </ViewButtonsGrid>
+
+              {/* ── Botões tipo relatório ── */}
+              <div>
+                <div style={{
+                  fontFamily: "'Share Tech Mono', monospace",
+                  fontSize: 10, color: '#64748B',
+                  letterSpacing: 1, marginBottom: 8,
+                }}>
+                  TIPO DE RELATÓRIO
+                </div>
+                <ViewButtonsGrid>
+                  <DetailedButton
+                    $active={reportType === 'detalhado'}
+                    onClick={() => setReportType('detalhado')}
+                  >
+                    DETALHADO
+                    <span style={{
+                      display: 'block', fontSize: 9, opacity: 0.7,
+                      fontFamily: "'Share Tech Mono', monospace",
+                      fontWeight: 400, letterSpacing: 0,
+                    }}>
+                      até {LIMITS.detalhado} alertas
+                    </span>
+                  </DetailedButton>
+
+                  <SummaryButton
+                    $active={reportType === 'resumido'}
+                    onClick={() => setReportType('resumido')}
+                  >
+                    RESUMIDO
+                    <span style={{
+                      display: 'block', fontSize: 9, opacity: 0.7,
+                      fontFamily: "'Share Tech Mono', monospace",
+                      fontWeight: 400, letterSpacing: 0,
+                    }}>
+                      até {LIMITS.resumido} alertas
+                    </span>
+                  </SummaryButton>
+                </ViewButtonsGrid>
+              </div>
             </SectionContent>
           </Section>
 
@@ -127,6 +198,7 @@ export function ReportsManagement() {
               PREVIEW DE INCIDENTES RECENTES
               <span style={{ fontSize: '10px', color: '#666', marginLeft: '8px', fontWeight: 400 }}>
                 {incidents.length} INCIDENTES
+                {truncado && ` (de ${totalReal})`}
               </span>
             </SectionTitle>
             <SectionContent>
@@ -196,6 +268,30 @@ export function ReportsManagement() {
           <Section>
             <SectionTitle>MÉTRICAS DO RELATÓRIO</SectionTitle>
             <SectionContent>
+              {/* badge tipo ativo */}
+              <div style={{ display: 'flex', gap: 8, marginBottom: 4 }}>
+                <span style={{
+                  padding: '2px 10px', borderRadius: 4,
+                  fontFamily: "'Share Tech Mono', monospace", fontSize: 9,
+                  background: reportType === 'detalhado' ? 'rgba(0,163,255,0.15)' : 'rgba(0,200,83,0.15)',
+                  border: `1px solid ${reportType === 'detalhado' ? 'rgba(0,163,255,0.4)' : 'rgba(0,200,83,0.4)'}`,
+                  color: reportType === 'detalhado' ? '#00A3FF' : '#00C853',
+                }}>
+                  {reportType.toUpperCase()} — LIMITE {limiteAtual}
+                </span>
+                {truncado && (
+                  <span style={{
+                    padding: '2px 10px', borderRadius: 4,
+                    fontFamily: "'Share Tech Mono', monospace", fontSize: 9,
+                    background: 'rgba(255,171,0,0.12)',
+                    border: '1px solid rgba(255,171,0,0.4)',
+                    color: '#FFAB00',
+                  }}>
+                    TRUNCADO
+                  </span>
+                )}
+              </div>
+
               <MetricsContainer>
                 <MetricItem>
                   <MetricHeader>
