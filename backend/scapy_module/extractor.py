@@ -1,548 +1,191 @@
-# backend/scapy_module/extractor.py
-# Mantém tudo o que existia + suporte às 10 features do Random Forest
+"""
+extractor.py  ·  AEGIS – NFStream → CIC-IDS 2018 feature extractor
+--------------------------------------------------------------------
+Converte um objecto NFStream Flow nas colunas exactas que o modelo
+Random Forest espera (feature_names_in_).
 
-import numpy as np
-from scapy.all import IP, TCP, UDP, ICMP, Raw
-from collections import defaultdict
-import time
+NFStream com statistical_analysis=True fornece TODAS as features
+CIC-IDS 2018, incluindo Init Fwd/Bwd Win Byts — que antes eram
+impossíveis de capturar packet-by-packet com Scapy.
+"""
+
+from __future__ import annotations
 import math
+import logging
 
-class Flow:
-    def __init__(self, src_ip, dst_ip, src_port, dst_port, protocol):
-        self.key = (src_ip, dst_ip, src_port, dst_port, protocol)
-        self.src_ip = src_ip
-        self.dst_ip = dst_ip
-        self.src_port = src_port
-        self.dst_port = dst_port
-        self.protocol = protocol
-
-        self.start_time = None
-        self.end_time = None
-        self.first_packet_time = None
-        self.last_packet_time = None
-        self.packets = []
-
-        self.total_packets = 0
-        self.total_bytes = 0
-        self.fwd_packets = 0
-        self.bwd_packets = 0
-        self.fwd_bytes = 0
-        self.bwd_bytes = 0
-
-        self.fwd_packet_sizes = []
-        self.bwd_packet_sizes = []
-        self.all_packet_sizes = []
-
-        self.iat_list = []
-        self.fwd_iat_list = []
-        self.bwd_iat_list = []
-        self.fwd_timestamps = []
-        self.bwd_timestamps = []
-
-        self.fwd_psh_count = 0
-        self.bwd_psh_count = 0
-        self.fwd_urg_count = 0
-        self.bwd_urg_count = 0
-        self.fwd_syn_count = 0
-        self.bwd_syn_count = 0
-        self.fwd_fin_count = 0
-        self.bwd_fin_count = 0
-        self.fwd_rst_count = 0
-        self.bwd_rst_count = 0
-        self.fwd_ack_count = 0
-        self.bwd_ack_count = 0
-
-        # NOVO: ECE flag
-        self.ece_count = 0
-
-        self.fwd_header_bytes = 0
-        self.bwd_header_bytes = 0
-
-        self.fwd_win_bytes = 0
-        self.bwd_win_bytes = 0
-        self.fwd_win_count = 0
-        self.bwd_win_count = 0
-
-        # NOVO: primeira janela TCP (Init Win Byts)
-        self.init_fwd_win_byts = -1   # -1 = ainda não visto
-        self.init_bwd_win_byts = -1
-
-        # NOVO: pacotes forward com payload real
-        self.fwd_act_data_pkts = 0
-
-        self.previous_timestamp = None
-        self.previous_fwd_timestamp = None
-        self.previous_bwd_timestamp = None
-        self.forward_direction = None
-
-        self.subflow_fwd_packets = []
-        self.subflow_fwd_bytes = []
-        self.subflow_bwd_packets = []
-        self.subflow_bwd_bytes = []
-        self.current_subflow_start = None
-        self._temp_fwd_packets = 0
-        self._temp_fwd_bytes = 0
-        self._temp_bwd_packets = 0
-        self._temp_bwd_bytes = 0
-
-        self.active_times = []
-        self.idle_times = []
-        self.last_active_time = None
-
-        self.fwd_seg_size_min = float('inf')
-        self.fwd_seg_size_max = 0
-        self.fwd_seg_size_sum = 0
-        self.fwd_seg_size_count = 0
-        self.bwd_seg_size_min = float('inf')
-        self.bwd_seg_size_max = 0
-        self.bwd_seg_size_sum = 0
-        self.bwd_seg_size_count = 0
-
-    def _determine_direction(self, pkt):
-        if IP not in pkt:
-            return None
-        ip = pkt[IP]
-        if self.forward_direction is None:
-            self.forward_direction = ip.src
-            return 'forward'
-        return 'forward' if ip.src == self.forward_direction else 'backward'
-
-    def _update_subflow(self, timestamp):
-        if self.current_subflow_start is None:
-            self.current_subflow_start = timestamp
-            return
-        if timestamp - self.current_subflow_start >= 1.0:
-            self.subflow_fwd_packets.append(self._temp_fwd_packets)
-            self.subflow_fwd_bytes.append(self._temp_fwd_bytes)
-            self.subflow_bwd_packets.append(self._temp_bwd_packets)
-            self.subflow_bwd_bytes.append(self._temp_bwd_bytes)
-            self.current_subflow_start = timestamp
-            self._temp_fwd_packets = 0
-            self._temp_fwd_bytes = 0
-            self._temp_bwd_packets = 0
-            self._temp_bwd_bytes = 0
-
-    def add_packet(self, pkt, timestamp):
-        if self.first_packet_time is None:
-            self.first_packet_time = timestamp
-            self.start_time = timestamp
-            self.last_active_time = timestamp
-            self.current_subflow_start = timestamp
-
-        self.last_packet_time = timestamp
-        self.end_time = timestamp
-        self.packets.append(pkt)
-
-        direction = self._determine_direction(pkt)
-        packet_size = len(pkt)
-        self.total_packets += 1
-        self.total_bytes += packet_size
-        self.all_packet_sizes.append(packet_size)
-
-        if direction == 'forward':
-            self.fwd_packets += 1
-            self.fwd_bytes += packet_size
-            self.fwd_packet_sizes.append(packet_size)
-            self.fwd_timestamps.append(timestamp)
-            self._temp_fwd_packets += 1
-            self._temp_fwd_bytes += packet_size
-
-            if self.previous_fwd_timestamp:
-                self.fwd_iat_list.append(timestamp - self.previous_fwd_timestamp)
-            self.previous_fwd_timestamp = timestamp
-
-            self.fwd_seg_size_sum += packet_size
-            self.fwd_seg_size_count += 1
-            if packet_size < self.fwd_seg_size_min:
-                self.fwd_seg_size_min = packet_size
-            if packet_size > self.fwd_seg_size_max:
-                self.fwd_seg_size_max = packet_size
-
-            if self.last_active_time:
-                idle = timestamp - self.last_active_time
-                if idle > 0:
-                    self.idle_times.append(idle)
-            self.last_active_time = timestamp
-
-        else:
-            self.bwd_packets += 1
-            self.bwd_bytes += packet_size
-            self.bwd_packet_sizes.append(packet_size)
-            self.bwd_timestamps.append(timestamp)
-            self._temp_bwd_packets += 1
-            self._temp_bwd_bytes += packet_size
-
-            if self.previous_bwd_timestamp:
-                self.bwd_iat_list.append(timestamp - self.previous_bwd_timestamp)
-            self.previous_bwd_timestamp = timestamp
-
-            self.bwd_seg_size_sum += packet_size
-            self.bwd_seg_size_count += 1
-            if packet_size < self.bwd_seg_size_min:
-                self.bwd_seg_size_min = packet_size
-            if packet_size > self.bwd_seg_size_max:
-                self.bwd_seg_size_max = packet_size
-
-        if self.previous_timestamp:
-            self.iat_list.append(timestamp - self.previous_timestamp)
-        self.previous_timestamp = timestamp
-
-        if self.last_active_time:
-            active = timestamp - self.last_active_time
-            if active > 0:
-                self.active_times.append(active)
-        self.last_active_time = timestamp
-
-        self._update_subflow(timestamp)
-
-        # Flags TCP
-        if TCP in pkt:
-            tcp = pkt[TCP]
-            flags = tcp.flags
-
-            # NOVO: ECE flag (bit E no Scapy)
-            if hasattr(flags, 'E') and flags.E:
-                self.ece_count += 1
-
-            if direction == 'forward':
-                if flags.PSH: self.fwd_psh_count += 1
-                if flags.URG: self.fwd_urg_count += 1
-                if flags.S:   self.fwd_syn_count += 1
-                if flags.F:   self.fwd_fin_count += 1
-                if flags.R:   self.fwd_rst_count += 1
-                if flags.A:   self.fwd_ack_count += 1
-
-                # NOVO: primeira janela forward
-                if self.init_fwd_win_byts == -1:
-                    self.init_fwd_win_byts = tcp.window
-
-                # NOVO: pacotes com payload real
-                if Raw in pkt and len(pkt[Raw].load) > 0:
-                    self.fwd_act_data_pkts += 1
-
-                self.fwd_win_bytes += tcp.window
-                self.fwd_win_count += 1
-                self.fwd_header_bytes += (tcp.dataofs * 4)
-            else:
-                if flags.PSH: self.bwd_psh_count += 1
-                if flags.URG: self.bwd_urg_count += 1
-                if flags.S:   self.bwd_syn_count += 1
-                if flags.F:   self.bwd_fin_count += 1
-                if flags.R:   self.bwd_rst_count += 1
-                if flags.A:   self.bwd_ack_count += 1
-
-                # NOVO: primeira janela backward
-                if self.init_bwd_win_byts == -1:
-                    self.init_bwd_win_byts = tcp.window
-
-                self.bwd_win_bytes += tcp.window
-                self.bwd_win_count += 1
-                self.bwd_header_bytes += (tcp.dataofs * 4)
-
-    def _calculate_stats(self, values):
-        if not values:
-            return 0, 0, 0, 0
-        return np.mean(values), np.std(values), np.min(values), np.max(values)
-
-    def get_model_features(self):
-        """
-        Retorna array numpy com as 10 features exactas do Random Forest.
-        Ordem obrigatória — igual ao X_selected do notebook:
-        Bwd Pkt Len Max, Bwd Pkt Len Mean, Bwd Pkt Len Std,
-        Pkt Len Max, RST Flag Cnt, ECE Flag Cnt,
-        Init Fwd Win Byts, Init Bwd Win Byts,
-        Fwd Act Data Pkts, Fwd Seg Size Min
-        """
-        _, bwd_std, _, bwd_max = self._calculate_stats(self.bwd_packet_sizes)
-        bwd_mean = np.mean(self.bwd_packet_sizes) if self.bwd_packet_sizes else 0
-        _, _, _, pkt_max = self._calculate_stats(self.all_packet_sizes)
-
-        rst_cnt = self.fwd_rst_count + self.bwd_rst_count
-        fwd_seg_min = self.fwd_seg_size_min if self.fwd_seg_size_min != float('inf') else 0
-        init_fwd = self.init_fwd_win_byts if self.init_fwd_win_byts != -1 else 0
-        init_bwd = self.init_bwd_win_byts if self.init_bwd_win_byts != -1 else 0
-
-        return np.array([
-            bwd_max,               # Bwd Pkt Len Max
-            bwd_mean,              # Bwd Pkt Len Mean
-            bwd_std,               # Bwd Pkt Len Std
-            pkt_max,               # Pkt Len Max
-            rst_cnt,               # RST Flag Cnt
-            self.ece_count,        # ECE Flag Cnt
-            init_fwd,              # Init Fwd Win Byts
-            init_bwd,              # Init Bwd Win Byts
-            self.fwd_act_data_pkts,# Fwd Act Data Pkts
-            fwd_seg_min,           # Fwd Seg Size Min
-        ], dtype=np.float32)
-
-    def get_features(self):
-        """Mantém as 78 features originais — não alterar"""
-        duration = (self.end_time - self.start_time) if self.start_time else 0
-        fwd_mean, fwd_std, fwd_min, fwd_max = self._calculate_stats(self.fwd_packet_sizes)
-        bwd_mean, bwd_std, bwd_min, bwd_max = self._calculate_stats(self.bwd_packet_sizes)
-        all_mean, all_std, all_min, all_max = self._calculate_stats(self.all_packet_sizes)
-        iat_mean, iat_std, iat_min, iat_max = self._calculate_stats(self.iat_list)
-        fwd_iat_mean, fwd_iat_std, fwd_iat_min, fwd_iat_max = self._calculate_stats(self.fwd_iat_list)
-        bwd_iat_mean, bwd_iat_std, bwd_iat_min, bwd_iat_max = self._calculate_stats(self.bwd_iat_list)
-        fwd_iat_total = sum(self.fwd_iat_list) if self.fwd_iat_list else 0
-        bwd_iat_total = sum(self.bwd_iat_list) if self.bwd_iat_list else 0
-        packet_rate = self.total_packets / duration if duration > 0 else 0
-        byte_rate = self.total_bytes / duration if duration > 0 else 0
-        fwd_packet_rate = self.fwd_packets / duration if duration > 0 else 0
-        bwd_packet_rate = self.bwd_packets / duration if duration > 0 else 0
-        down_up_ratio = self.bwd_packets / self.fwd_packets if self.fwd_packets > 0 else 0
-        fwd_avg_seg_size = self.fwd_seg_size_sum / self.fwd_seg_size_count if self.fwd_seg_size_count > 0 else 0
-        bwd_avg_seg_size = self.bwd_seg_size_sum / self.bwd_seg_size_count if self.bwd_seg_size_count > 0 else 0
-        fwd_avg_win = self.fwd_win_bytes / self.fwd_win_count if self.fwd_win_count > 0 else 0
-        bwd_avg_win = self.bwd_win_bytes / self.bwd_win_count if self.bwd_win_count > 0 else 0
-        subflow_fwd_avg_packets = np.mean(self.subflow_fwd_packets) if self.subflow_fwd_packets else 0
-        subflow_fwd_avg_bytes = np.mean(self.subflow_fwd_bytes) if self.subflow_fwd_bytes else 0
-        subflow_bwd_avg_packets = np.mean(self.subflow_bwd_packets) if self.subflow_bwd_packets else 0
-        subflow_bwd_avg_bytes = np.mean(self.subflow_bwd_bytes) if self.subflow_bwd_bytes else 0
-        active_mean, active_std, active_min, active_max = self._calculate_stats(self.active_times)
-        idle_mean, idle_std, idle_min, idle_max = self._calculate_stats(self.idle_times)
-
-        return {
-            'Flow Duration': duration,
-            'Total Fwd Packets': self.fwd_packets,
-            'Total Backward Packets': self.bwd_packets,
-            'Total Length of Fwd Packets': self.fwd_bytes,
-            'Total Length of Bwd Packets': self.bwd_bytes,
-            'Fwd Packet Length Max': fwd_max,
-            'Fwd Packet Length Min': fwd_min,
-            'Fwd Packet Length Mean': fwd_mean,
-            'Fwd Packet Length Std': fwd_std,
-            'Bwd Packet Length Max': bwd_max,
-            'Bwd Packet Length Min': bwd_min,
-            'Bwd Packet Length Mean': bwd_mean,
-            'Bwd Packet Length Std': bwd_std,
-            'Packet Length Max': all_max,
-            'Packet Length Min': all_min,
-            'Packet Length Mean': all_mean,
-            'Packet Length Std': all_std,
-            'Packet Length Variance': all_std ** 2,
-            'Flow IAT Mean': iat_mean,
-            'Flow IAT Std': iat_std,
-            'Flow IAT Max': iat_max,
-            'Flow IAT Min': iat_min,
-            'Fwd IAT Total': fwd_iat_total,
-            'Fwd IAT Mean': fwd_iat_mean,
-            'Fwd IAT Std': fwd_iat_std,
-            'Fwd IAT Max': fwd_iat_max,
-            'Fwd IAT Min': fwd_iat_min,
-            'Bwd IAT Total': bwd_iat_total,
-            'Bwd IAT Mean': bwd_iat_mean,
-            'Bwd IAT Std': bwd_iat_std,
-            'Bwd IAT Max': bwd_iat_max,
-            'Bwd IAT Min': bwd_iat_min,
-            'Fwd PSH Flags': self.fwd_psh_count,
-            'Bwd PSH Flags': self.bwd_psh_count,
-            'Fwd URG Flags': self.fwd_urg_count,
-            'Bwd URG Flags': self.bwd_urg_count,
-            'FIN Flag Count': self.fwd_fin_count + self.bwd_fin_count,
-            'SYN Flag Count': self.fwd_syn_count + self.bwd_syn_count,
-            'RST Flag Count': self.fwd_rst_count + self.bwd_rst_count,
-            'PSH Flag Count': self.fwd_psh_count + self.bwd_psh_count,
-            'ACK Flag Count': self.fwd_ack_count + self.bwd_ack_count,
-            'URG Flag Count': self.fwd_urg_count + self.bwd_urg_count,
-            'Flow Bytes/s': byte_rate,
-            'Flow Packets/s': packet_rate,
-            'Fwd Packets/s': fwd_packet_rate,
-            'Bwd Packets/s': bwd_packet_rate,
-            'Down/Up Ratio': down_up_ratio,
-            'Average Packet Size': all_mean,
-            'Avg Fwd Segment Size': fwd_avg_seg_size,
-            'Avg Bwd Segment Size': bwd_avg_seg_size,
-            'Fwd Header Length': self.fwd_header_bytes,
-            'Bwd Header Length': self.bwd_header_bytes,
-            'Init_Win_bytes_forward': fwd_avg_win,
-            'Init_Win_bytes_backward': bwd_avg_win,
-            'Subflow Fwd Packets': subflow_fwd_avg_packets,
-            'Subflow Fwd Bytes': subflow_fwd_avg_bytes,
-            'Subflow Bwd Packets': subflow_bwd_avg_packets,
-            'Subflow Bwd Bytes': subflow_bwd_avg_bytes,
-            'Active Mean': active_mean,
-            'Active Std': active_std,
-            'Active Max': active_max,
-            'Active Min': active_min,
-            'Idle Mean': idle_mean,
-            'Idle Std': idle_std,
-            'Idle Max': idle_max,
-            'Idle Min': idle_min,
-            'min_seg_size_forward': self.fwd_seg_size_min if self.fwd_seg_size_min != float('inf') else 0,
-            'Src Port': self.src_port,
-            'Dst Port': self.dst_port,
-            'Protocol': self.protocol
-        }
-
-    def get_legado_features(self):
-        """Mantém as 14 features do modelo antigo"""
-        if not self.packets:
-            return [0] * 14
-        pkt = self.packets[0]
-        last_time = self.packets[-1].time if len(self.packets) > 1 else None
-        feat = [0] * 14
-        feat[0] = len(pkt)
-        if IP in pkt:
-            ip = pkt[IP]
-            feat[1] = ip.proto
-            feat[2] = ip.ttl
-            try:
-                feat[8] = int(ip.src.split('.')[-1]) / 255.0
-            except:
-                feat[8] = 0
-        if TCP in pkt:
-            tcp = pkt[TCP]
-            feat[3] = tcp.window
-            feat[4] = int(tcp.flags)
-            feat[5] = tcp.sport
-            feat[6] = tcp.dport
-            feat[9]  = 1 if tcp.flags.S else 0
-            feat[10] = 1 if tcp.flags.A else 0
-            feat[11] = 1 if tcp.flags.F else 0
-            feat[12] = 1 if tcp.flags.R else 0
-        elif UDP in pkt:
-            feat[5] = pkt[UDP].sport
-            feat[6] = pkt[UDP].dport
-        if Raw in pkt:
-            feat[7] = len(pkt[Raw].load)
-        if last_time:
-            feat[13] = pkt.time - last_time
-        return feat
+logger = logging.getLogger(__name__)
 
 
-class FlowExtractor:
-    def __init__(self, timeout=60, modo_legado=False):
-        self.flows = {}
-        self.timeout = timeout
-        self.completed_flows = []
-        self.modo_legado = modo_legado
-        self.global_src_ports = defaultdict(set)
-        self.global_dst_ports = defaultdict(set)
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
-    def get_flow_key(self, pkt):
-        if IP not in pkt:
-            return None
-        ip = pkt[IP]
-        src_ip, dst_ip = ip.src, ip.dst
-        if TCP in pkt:
-            proto, src_port, dst_port = 6, pkt[TCP].sport, pkt[TCP].dport
-        elif UDP in pkt:
-            proto, src_port, dst_port = 17, pkt[UDP].sport, pkt[UDP].dport
-        elif ICMP in pkt:
-            proto, src_port, dst_port = 1, 0, 0
-        else:
-            proto, src_port, dst_port = 0, 0, 0
-        if src_ip < dst_ip:
-            return (src_ip, dst_ip, src_port, dst_port, proto)
-        return (dst_ip, src_ip, dst_port, src_port, proto)
-
-    def process_packet(self, pkt, timestamp):
-        key = self.get_flow_key(pkt)
-        if key is None:
-            return None
-        if key not in self.flows:
-            self.flows[key] = Flow(key[0], key[1], key[2], key[3], key[4])
-        flow = self.flows[key]
-        flow.add_packet(pkt, timestamp)
-        self._cleanup_old_flows(timestamp)
-        return flow
-
-    def _cleanup_old_flows(self, current_time):
-        to_remove = []
-        for key, flow in self.flows.items():
-            if flow.last_packet_time and (current_time - flow.last_packet_time) > self.timeout:
-                self.completed_flows.append(flow)
-                to_remove.append(key)
-        for key in to_remove:
-            del self.flows[key]
-
-    def get_completed_flows(self):
-        flows = self.completed_flows.copy()
-        self.completed_flows = []
-        return flows
-
-    def get_completed_legado_features(self):
-        features = [flow.get_legado_features() for flow in self.completed_flows]
-        self.completed_flows = []
-        return np.array(features, dtype=np.float32)
-
-    def get_feature_names(self):
-        return [
-            'Flow Duration', 'Total Fwd Packets', 'Total Backward Packets',
-            'Total Length of Fwd Packets', 'Total Length of Bwd Packets',
-            'Fwd Packet Length Max', 'Fwd Packet Length Min',
-            'Fwd Packet Length Mean', 'Fwd Packet Length Std',
-            'Bwd Packet Length Max', 'Bwd Packet Length Min',
-            'Bwd Packet Length Mean', 'Bwd Packet Length Std',
-            'Packet Length Max', 'Packet Length Min', 'Packet Length Mean',
-            'Packet Length Std', 'Packet Length Variance',
-            'Flow IAT Mean', 'Flow IAT Std', 'Flow IAT Max', 'Flow IAT Min',
-            'Fwd IAT Total', 'Fwd IAT Mean', 'Fwd IAT Std', 'Fwd IAT Max', 'Fwd IAT Min',
-            'Bwd IAT Total', 'Bwd IAT Mean', 'Bwd IAT Std', 'Bwd IAT Max', 'Bwd IAT Min',
-            'Fwd PSH Flags', 'Bwd PSH Flags', 'Fwd URG Flags', 'Bwd URG Flags',
-            'FIN Flag Count', 'SYN Flag Count', 'RST Flag Count', 'PSH Flag Count',
-            'ACK Flag Count', 'URG Flag Count',
-            'Flow Bytes/s', 'Flow Packets/s', 'Fwd Packets/s', 'Bwd Packets/s',
-            'Down/Up Ratio', 'Average Packet Size', 'Avg Fwd Segment Size',
-            'Avg Bwd Segment Size', 'Fwd Header Length', 'Bwd Header Length',
-            'Init_Win_bytes_forward', 'Init_Win_bytes_backward',
-            'Subflow Fwd Packets', 'Subflow Fwd Bytes',
-            'Subflow Bwd Packets', 'Subflow Bwd Bytes',
-            'Active Mean', 'Active Std', 'Active Max', 'Active Min',
-            'Idle Mean', 'Idle Std', 'Idle Max', 'Idle Min',
-            'min_seg_size_forward', 'Src Port', 'Dst Port', 'Protocol'
-        ]
+def _safe(val, default: float = 0.0) -> float:
+    """Devolve val ou default se val for None / NaN / inf."""
+    if val is None:
+        return default
+    try:
+        f = float(val)
+        return default if (math.isnan(f) or math.isinf(f)) else f
+    except (TypeError, ValueError):
+        return default
 
 
-class ScapyExtractor:
-    """Extrator LEGADO para modelos com 14 features (por pacote)"""
-    def __init__(self):
-        self.feature_names = [
-            'packet_size', 'protocol', 'ttl', 'window_size',
-            'tcp_flags', 'src_port', 'dst_port', 'payload_size',
-            'ip_entropy', 'flag_syn', 'flag_ack', 'flag_fin',
-            'flag_rst', 'inter_arrival'
-        ]
+def _rate(numerator, duration_s: float) -> float:
+    """numerador / duração, protegido contra divisão por zero."""
+    return _safe(numerator) / duration_s if duration_s > 0 else 0.0
 
-    def extract_from_pcap(self, pcap_path, max_packets=None):
-        from scapy.all import rdpcap
-        packets = rdpcap(str(pcap_path))
-        if max_packets:
-            packets = packets[:max_packets]
-        features = []
-        last_time = None
-        for pkt in packets:
-            features.append(self._extract_packet_features(pkt, last_time))
-            last_time = pkt.time
-        return np.array(features, dtype=np.float32)
 
-    def _extract_packet_features(self, pkt, last_time):
-        feat = [0] * 14
-        feat[0] = len(pkt)
-        if IP in pkt:
-            ip = pkt[IP]
-            feat[1] = ip.proto
-            feat[2] = ip.ttl
-            try:
-                feat[8] = int(ip.src.split('.')[-1]) / 255.0
-            except:
-                feat[8] = 0
-        if TCP in pkt:
-            tcp = pkt[TCP]
-            feat[3] = tcp.window
-            feat[4] = int(tcp.flags)
-            feat[5] = tcp.sport
-            feat[6] = tcp.dport
-            feat[9]  = 1 if tcp.flags.S else 0
-            feat[10] = 1 if tcp.flags.A else 0
-            feat[11] = 1 if tcp.flags.F else 0
-            feat[12] = 1 if tcp.flags.R else 0
-        elif UDP in pkt:
-            feat[5] = pkt[UDP].sport
-            feat[6] = pkt[UDP].dport
-        if Raw in pkt:
-            feat[7] = len(pkt[Raw].load)
-        if last_time:
-            feat[13] = pkt.time - last_time
-        return feat
+def _ms_to_us(ms_val) -> float:
+    """Milissegundos → microssegundos (CIC-IDS usa µs para IAT)."""
+    return _safe(ms_val) * 1_000.0
+
+
+# ---------------------------------------------------------------------------
+# Mapeamento principal
+# ---------------------------------------------------------------------------
+
+def extrair_features_nfstream(flow) -> dict | None:
+    """
+    Recebe um objecto NFStream NFlow (gerado com statistical_analysis=True)
+    e devolve um dicionário com:
+        - chaves '_*'   : metadados (não enviados ao modelo)
+        - chaves restantes : features CIC-IDS 2018 completas
+
+    Devolve None se o fluxo não tiver tráfego suficiente para
+    produzir uma predição significativa.
+    """
+    # Filtro mínimo: pelo menos 2 pacotes bidirecionais
+    if _safe(flow.bidirectional_packets) < 2:
+        return None
+
+    if _safe(flow.bidirectional_bytes) == 0:
+        return None
+    # ── Duração em segundos (denominador para taxas) ──────────────────────
+    dur_ms = _safe(flow.bidirectional_duration_ms, default=1.0)
+    dur_s  = max(dur_ms / 1_000.0, 1e-9)
+
+    # ── IAT: NFStream reporta em ms, CIC-IDS espera µs ───────────────────
+    #   NFStream NÃO fornece IAT total directamente;
+    #   aproximamos como (n_pkts - 1) × mean_IAT
+    fwd_pkts  = _safe(flow.src2dst_packets)
+    bwd_pkts  = _safe(flow.dst2src_packets)
+    fwd_n_iat = max(fwd_pkts - 1, 0)
+    bwd_n_iat = max(bwd_pkts - 1, 0)
+
+    fwd_iat_mean_us = _ms_to_us(flow.src2dst_mean_piat_ms)
+    bwd_iat_mean_us = _ms_to_us(flow.dst2src_mean_piat_ms)
+
+    fwd_iat_tot = fwd_n_iat * fwd_iat_mean_us
+    bwd_iat_tot = bwd_n_iat * bwd_iat_mean_us
+
+    # ── Metadados (não vão ao modelo) ─────────────────────────────────────
+    metadata = {
+        '_src_ip':   getattr(flow, 'src_ip',   '?'),
+        '_dst_ip':   getattr(flow, 'dst_ip',   '?'),
+        '_src_port': getattr(flow, 'src_port',  0),
+        '_dst_port': getattr(flow, 'dst_port',  0),
+        '_protocol': getattr(flow, 'protocol',  0),
+        '_app':      getattr(flow, 'application_name', 'Unknown'),
+    }
+
+    # ── Features CIC-IDS 2018 ─────────────────────────────────────────────
+    features = {
+        # ── Volume básico ─────────────────────────────────────────────────
+        'Flow Duration'    : dur_ms * 1_000.0,                          # µs
+        'Tot Fwd Pkts'     : fwd_pkts,
+        'Tot Bwd Pkts'     : bwd_pkts,
+        'TotLen Fwd Pkts'  : _safe(flow.src2dst_bytes),
+        'TotLen Bwd Pkts'  : _safe(flow.dst2src_bytes),
+
+        # ── Tamanho de pacotes forward ────────────────────────────────────
+        'Fwd Pkt Len Max'  : _safe(flow.src2dst_max_ps),
+        'Fwd Pkt Len Min'  : _safe(flow.src2dst_min_ps),
+        'Fwd Pkt Len Mean' : _safe(flow.src2dst_mean_ps),
+        'Fwd Pkt Len Std'  : _safe(flow.src2dst_stddev_ps),
+
+        # ── Tamanho de pacotes backward ───────────────────────────────────
+        'Bwd Pkt Len Max'  : _safe(flow.dst2src_max_ps),
+        'Bwd Pkt Len Min'  : _safe(flow.dst2src_min_ps),
+        'Bwd Pkt Len Mean' : _safe(flow.dst2src_mean_ps),
+        'Bwd Pkt Len Std'  : _safe(flow.dst2src_stddev_ps),
+
+        # ── Taxas ─────────────────────────────────────────────────────────
+        'Flow Byts/s'      : _rate(flow.bidirectional_bytes,   dur_s),
+        'Flow Pkts/s'      : _rate(flow.bidirectional_packets, dur_s),
+        'Fwd Pkts/s'       : _rate(flow.src2dst_packets,       dur_s),
+        'Bwd Pkts/s'       : _rate(flow.dst2src_packets,       dur_s),
+
+        # ── IAT bidireccional ─────────────────────────────────────────────
+        'Flow IAT Mean'    : _ms_to_us(flow.bidirectional_mean_piat_ms),
+        'Flow IAT Std'     : _ms_to_us(flow.bidirectional_stddev_piat_ms),
+        'Flow IAT Max'     : _ms_to_us(flow.bidirectional_max_piat_ms),
+        'Flow IAT Min'     : _ms_to_us(flow.bidirectional_min_piat_ms),
+
+        # ── IAT forward ───────────────────────────────────────────────────
+        'Fwd IAT Tot'      : fwd_iat_tot,
+        'Fwd IAT Mean'     : fwd_iat_mean_us,
+        'Fwd IAT Std'      : _ms_to_us(flow.src2dst_stddev_piat_ms),
+        'Fwd IAT Max'      : _ms_to_us(flow.src2dst_max_piat_ms),
+        'Fwd IAT Min'      : _ms_to_us(flow.src2dst_min_piat_ms),
+
+        # ── IAT backward ──────────────────────────────────────────────────
+        'Bwd IAT Tot'      : bwd_iat_tot,
+        'Bwd IAT Mean'     : bwd_iat_mean_us,
+        'Bwd IAT Std'      : _ms_to_us(flow.dst2src_stddev_piat_ms),
+        'Bwd IAT Max'      : _ms_to_us(flow.dst2src_max_piat_ms),
+        'Bwd IAT Min'      : _ms_to_us(flow.dst2src_min_piat_ms),
+
+        # ── Flags TCP ─────────────────────────────────────────────────────
+        'Fwd PSH Flags'    : _safe(flow.src2dst_psh_packets),
+        'Bwd PSH Flags'    : _safe(flow.dst2src_psh_packets),
+        'Fwd URG Flags'    : _safe(flow.src2dst_urg_packets),
+        'Bwd URG Flags'    : _safe(flow.dst2src_urg_packets),
+        'FIN Flag Cnt'     : _safe(flow.bidirectional_fin_packets),
+        'SYN Flag Cnt'     : _safe(flow.bidirectional_syn_packets),
+        'RST Flag Cnt'     : _safe(flow.bidirectional_rst_packets),
+        'PSH Flag Cnt'     : _safe(flow.bidirectional_psh_packets),
+        'ACK Flag Cnt'     : _safe(flow.bidirectional_ack_packets),
+        'URG Flag Cnt'     : _safe(flow.bidirectional_urg_packets),
+        'CWE Flag Count'   : _safe(flow.bidirectional_cwr_packets),
+        'ECE Flag Cnt'     : _safe(flow.bidirectional_ece_packets),
+
+        # ── Estatísticas de tamanho (todos os pacotes) ────────────────────
+        'Pkt Len Min'      : _safe(flow.bidirectional_min_ps),
+        'Pkt Len Max'      : _safe(flow.bidirectional_max_ps),
+        'Pkt Len Mean'     : _safe(flow.bidirectional_mean_ps),
+        'Pkt Len Std'      : _safe(flow.bidirectional_stddev_ps),
+        'Pkt Len Var'      : _safe(flow.bidirectional_stddev_ps) ** 2,
+
+        # ── Rácios e médias ───────────────────────────────────────────────
+        'Down/Up Ratio'    : (
+            _safe(flow.dst2src_bytes) / _safe(flow.src2dst_bytes)
+            if _safe(flow.src2dst_bytes) > 0 else 0.0
+        ),
+        # Nomes alinhados com CIC-IDS 2018 / modelo treinado
+        'Pkt Size Avg'     : _safe(flow.bidirectional_mean_ps),
+        'Fwd Seg Size Avg' : _safe(flow.src2dst_mean_ps),
+        'Bwd Seg Size Avg' : _safe(flow.dst2src_mean_ps),
+
+        # ── Subflows (NFStream não segmenta; usa totais) ──────────────────
+        'Subflow Fwd Pkts' : fwd_pkts,
+        'Subflow Bwd Pkts' : bwd_pkts,
+        'Subflow Fwd Byts' : _safe(flow.src2dst_bytes),
+        'Subflow Bwd Byts' : _safe(flow.dst2src_bytes),
+
+        # ── Forward activo / segmento mínimo ─────────────────────────────
+        'Fwd Act Data Pkts': fwd_pkts,
+        'Fwd Seg Size Min' : _safe(flow.src2dst_min_ps),
+
+        # ── Active / Idle — NFStream não rastreia; zeros seguros ─────────
+        'Active Mean'      : 0.0,
+        'Active Std'       : 0.0,
+        'Active Max'       : 0.0,
+        'Active Min'       : 0.0,
+        'Idle Mean'        : 0.0,
+        'Idle Std'         : 0.0,
+        'Idle Max'         : 0.0,
+        'Idle Min'         : 0.0,
+    }
+
+    return {**metadata, **features}

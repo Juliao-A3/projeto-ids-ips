@@ -70,46 +70,61 @@ async def inspecionar(
 
 @inspecionar_router.get("/modelos")
 async def listar_modelos(
-    usuario = Depends(require_role(["admin", "analista"]))
+    usuario = Depends(require_role(["admin", "analista", "operador"]))
 ):
     """Lista todos os modelos .pkl disponíveis."""
 
     if not MODELS_DIR.exists():
-        return {"modelos": []}
+        return {"total": 0, "modelos": []}
+
+    modelo_ativo_nome = None
+    ref_path = MODELS_DIR / "modelo_ativo.json"
+    if ref_path.exists():
+        try:
+            with open(ref_path, 'r', encoding='utf-8') as f:
+                ref = json.load(f)
+            modelo_ativo_nome = ref.get("nome")
+        except Exception:
+            modelo_ativo_nome = None
 
     modelos = []
 
-    for f in sorted(MODELS_DIR.glob("*.pkl"), key=lambda x: x.stat().st_mtime, reverse=True):
-        try:
-            with open(f, 'rb') as fp:
-                data = pickle.load(fp)
+    try:
+        for f in sorted(MODELS_DIR.glob("*.pkl"), key=lambda x: x.stat().st_mtime, reverse=True):
+            try:
+                with open(f, 'rb') as fp:
+                    data = pickle.load(fp)
 
-            info = {
-                "nome":       f.name,
-                "tamanho_kb": round(f.stat().st_size / 1024, 2),
-                "modificado": f.stat().st_mtime,
-            }
+                info = {
+                    "nome":       f.name,
+                    "tamanho_kb": round(f.stat().st_size / 1024, 2),
+                    "modificado": f.stat().st_mtime,
+                    "ativo":      f.name == "best_model.pkl" or f.name == modelo_ativo_nome,
+                }
 
-            if isinstance(data, dict):
-                info["data_treino"] = data.get("data_treino", "Desconhecida")
-                info["acuracia"]    = data.get("acuracia", None)
-                info["versao"]      = data.get("versao", "1.0")
-                info["n_features"]  = len(data.get("feature_names", []))
-                info["tipo"]        = type(data.get("modelo")).__name__ if "modelo" in data else "Desconhecido"
-            else:
-                info["tipo"]       = type(data).__name__
-                info["n_features"] = getattr(data, "n_features_in_", None)
-                info["acuracia"]   = None
+                if isinstance(data, dict):
+                    info["data_treino"] = data.get("data_treino", "Desconhecida")
+                    info["acuracia"]    = data.get("acuracia", None)
+                    info["versao"]      = data.get("versao", "1.0")
+                    info["n_features"]  = len(data.get("feature_names", []))
+                    info["tipo"]        = type(data.get("modelo")).__name__ if "modelo" in data else "Desconhecido"
+                else:
+                    info["tipo"]       = type(data).__name__
+                    info["n_features"] = getattr(data, "n_features_in_", None)
+                    info["acuracia"]   = None
 
-            modelos.append(info)
+                modelos.append(info)
 
-        except Exception:
-            # ficheiro corrompido ou incompatível — adiciona mesmo assim
-            modelos.append({
-                "nome":       f.name,
-                "tamanho_kb": round(f.stat().st_size / 1024, 2),
-                "erro":       "Não foi possível carregar",
-            })
+            except Exception:
+                # ficheiro corrompido ou incompatível — adiciona mesmo assim
+                modelos.append({
+                    "nome":       f.name,
+                    "tamanho_kb": round(f.stat().st_size / 1024, 2),
+                    "ativo":      f.name == "best_model.pkl" or f.name == modelo_ativo_nome,
+                    "erro":       "Não foi possível carregar",
+                })
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Falha ao listar modelos: {e}")
 
     return {
         "total":   len(modelos),

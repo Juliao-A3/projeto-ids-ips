@@ -3,6 +3,10 @@ import asyncio
 from datetime import datetime
 import threading
 import sys
+import os
+import shutil
+import json
+import ipaddress
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -15,19 +19,81 @@ from dependencies import require_role, verificar_token_ws
 from models import IpsBloqueados, LogEvento, Alerta, Severidade, Status, NetworkConfig
 from sqlalchemy.orm import Session
 from notification_service import notificar_alerta
-from scapy_module.sniffer_realtime import PROJECT_PATH, IPSRealtime
-import shutil
-import json
+
+# ── NFStream sniffer (nova API) ───────────────────────────────────────────────
+from scapy_module.sniffer_realtime import iniciar as _sniffer_iniciar
+from scapy_module.sniffer_realtime import parar   as _sniffer_parar
+from scapy_module.sniffer_realtime import estado  as _sniffer_estado
+
+PROJECT_PATH = Path(__file__).resolve().parent.parent
 
 sniffer_router = APIRouter(prefix="/sniffer", tags=["Sniffer"])
 
-# ── Estado global ────────────────────────────────────────────────────────────
-_ips_instance:   Optional[IPSRealtime]      = None
-_sniffer_thread: Optional[threading.Thread] = None
-_ws_clients:     list[WebSocket]            = []
-_session_factory                            = None
+# ── Whitelist IPs exactos ─────────────────────────────────────────────────────
+_whitelist: set[str] = {'127.0.0.1'}
 
-# ── Event loop dedicado ──────────────────────────────────────────────────────
+# ── Whitelist CIDR — ranges de fornecedores conhecidos e redes internas ───────
+# Adiciona aqui qualquer range que não deva gerar alertas.
+_whitelist_cidr: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
+
+_CIDR_DEFAULTS = [
+    # Loopback / link-local / multicast
+    '127.0.0.0/8',
+    '169.254.0.0/16',
+    '224.0.0.0/4',
+    'ff00::/8',
+    'fe80::/10',
+    '224.0.0.251',
+    '239.255.255.250',
+    '255.255.255.255',
+    '192.168.100.76',
+    # Google (GCP + serviços)
+    '8.8.8.0/24',
+    '8.8.4.0/24',
+    '142.250.0.0/15',
+    '142.251.0.0/16',
+    '172.217.0.0/16',
+    '34.0.0.0/9',
+    '35.184.0.0/13',
+    # Microsoft / Azure
+    '13.64.0.0/11',
+    '13.96.0.0/13',
+    '13.104.0.0/14',
+    '20.0.0.0/8',
+    '40.64.0.0/10',
+    # GitHub
+    '140.82.112.0/20',
+    '192.30.252.0/22',
+    '185.199.108.0/22',
+    # Cloudflare
+    '1.1.1.0/24',
+    '1.0.0.0/24',
+    '104.16.0.0/13',
+    '104.24.0.0/14',
+]
+
+for _cidr in _CIDR_DEFAULTS:
+    try:
+        _whitelist_cidr.append(ipaddress.ip_network(_cidr, strict=False))
+    except ValueError:
+        pass
+
+
+def _ip_em_whitelist(ip: str) -> bool:
+    """Verifica IP exacto e ranges CIDR."""
+    if ip in _whitelist:
+        return True
+    try:
+        addr = ipaddress.ip_address(ip)
+        return any(addr in net for net in _whitelist_cidr)
+    except ValueError:
+        return False
+
+# ── Estado global ────────────────────────────────────────────────────────────
+_ws_clients:      list = []
+_session_factory                  = None
+
+# ── Event loop dedicado ───────────────────────────────────────────────────────
 _loop: Optional[asyncio.AbstractEventLoop] = None
 
 def _get_loop():
@@ -37,7 +103,7 @@ def _get_loop():
         threading.Thread(target=_loop.run_forever, daemon=True).start()
     return _loop
 
-# ── Schemas ──────────────────────────────────────────────────────────────────
+# ── Schemas ───────────────────────────────────────────────────────────────────
 class SnifferStartSchema(BaseModel):
     interface: Optional[str] = None
     filtro:    Optional[str] = None
@@ -49,7 +115,7 @@ class WhitelistSchema(BaseModel):
 class ModeloAtivoSchema(BaseModel):
     nome: str
 
-# ── Broadcast WebSocket ──────────────────────────────────────────────────────
+# ── Broadcast WebSocket ───────────────────────────────────────────────────────
 async def _broadcast_pacote(pkt_info: dict):
     mortos = []
     for ws in _ws_clients:
@@ -61,26 +127,44 @@ async def _broadcast_pacote(pkt_info: dict):
         if ws in _ws_clients:
             _ws_clients.remove(ws)
 
-# ── Callback do Scapy ────────────────────────────────────────────────────────
-def _callback_pacote(pkt_info: dict):
+# ── Callback do NFStream ──────────────────────────────────────────────────────
+async def _callback_fluxo(alerta: dict):
     """
-    Chamado pela thread do Scapy para cada fluxo processado.
-    O Random Forest envia tipo='ataque' (em vez de 'anomalia').
+    Chamado pelo sniffer_realtime.py para cada fluxo classificado.
+    'alerta' tem as chaves: src_ip, dst_ip, src_port, dst_port,
+    protocol, app, label, confidence, is_attack, flow_duration_s,
+    total_bytes, total_packets.
     """
-    # ── Guardar no banco se for ataque ──────────────────────────────────────
-    if pkt_info.get("tipo") == "ataque" and _session_factory:
+    # ── Filtro whitelist (IP exacto + ranges CIDR) ────────────────────────
+    if _ip_em_whitelist(alerta.get("src_ip", "")) or \
+       _ip_em_whitelist(alerta.get("dst_ip", "")):
+        return
+
+    # Normalizar para o formato que o frontend e o banco esperam
+    pkt_info = {
+        **alerta,
+        'tipo':      'ataque' if alerta.get('is_attack') else 'normal',
+        'protocolo': _proto_name(alerta.get('protocol', 0)),
+        'confianca': round(alerta.get('confidence', 0) * 100, 1),
+    }
+
+    # ── Guardar no banco se for ataque ────────────────────────────────────
+    if pkt_info['tipo'] == 'ataque' and _session_factory:
         try:
             session: Session = next(_session_factory())
 
-            # Usa o label do RF como assinatura (ex: "SSH-Bruteforce")
-            assinatura = f"RF_{pkt_info.get('label', 'ATAQUE').upper().replace(' ', '_').replace('-', '_')}"
+            assinatura = (
+                "RF_"
+                + pkt_info.get('label', 'ATAQUE')
+                  .upper().replace(' ', '_').replace('-', '_')
+            )
 
             evento = LogEvento(
-                src_ip     = pkt_info.get("src_ip", "desconhecido"),
-                dest_ip    = pkt_info.get("dst_ip", "desconhecido"),
-                src_port   = pkt_info.get("src_port", 0),
-                dest_port  = pkt_info.get("dst_port", 0),
-                protocolo  = pkt_info.get("protocolo", "OUTRO"),
+                src_ip     = pkt_info.get('src_ip',   'desconhecido'),
+                dest_ip    = pkt_info.get('dst_ip',   'desconhecido'),
+                src_port   = pkt_info.get('src_port',  0),
+                dest_port  = pkt_info.get('dst_port',  0),
+                protocolo  = pkt_info.get('protocolo', 'OUTRO'),
                 assinatura = assinatura,
                 severidade = Severidade.ALTA,
                 status     = Status.PENDENTE,
@@ -88,26 +172,14 @@ def _callback_pacote(pkt_info: dict):
             session.add(evento)
             session.flush()
 
-            alerta = Alerta(
-                evento_id             = evento.id,
-                ip_origem             = pkt_info.get("src_ip", "desconhecido"),
-                ip_destino            = pkt_info.get("dst_ip", "desconhecido"),
-                protocolo             = pkt_info.get("protocolo", "OUTRO"),
-                porta_de_comunicacao  = pkt_info.get("dst_port", 0),
+            alerta_db = Alerta(
+                evento_id            = evento.id,
+                ip_origem            = pkt_info.get('src_ip',  'desconhecido'),
+                ip_destino           = pkt_info.get('dst_ip',  'desconhecido'),
+                protocolo            = pkt_info.get('protocolo', 'OUTRO'),
+                porta_de_comunicacao = pkt_info.get('dst_port', 0),
             )
-            session.add(alerta)
-
-            if pkt_info.get("bloqueado"):
-                ip_block = IpsBloqueados(
-                    ip_bloqueado = pkt_info.get("src_ip"),
-                    motivo       = (
-                        f"Bloqueio automático — "
-                        f"{pkt_info.get('label', 'ataque')} "
-                        f"({pkt_info.get('confianca', 0)}% confiança)"
-                    ),
-                )
-                session.add(ip_block)
-
+            session.add(alerta_db)
             session.commit()
 
             asyncio.run_coroutine_threadsafe(
@@ -120,13 +192,14 @@ def _callback_pacote(pkt_info: dict):
         finally:
             session.close()
 
-    # ── Enviar para todos os clientes WebSocket ──────────────────────────────
-    asyncio.run_coroutine_threadsafe(
-        _broadcast_pacote(pkt_info),
-        _get_loop()
-    )
+    # ── Enviar para clientes WebSocket ────────────────────────────────────
+    await _broadcast_pacote(pkt_info)
 
-# ── Helper — lê config de rede do banco ─────────────────────────────────────
+
+def _proto_name(proto_int: int) -> str:
+    return {6: 'TCP', 17: 'UDP', 1: 'ICMP'}.get(int(proto_int), 'OUTRO')
+
+# ── Helper — lê config de rede do banco ──────────────────────────────────────
 def _ler_network_config():
     if not _session_factory:
         return None
@@ -139,53 +212,51 @@ def _ler_network_config():
         print(f"⚠ Erro ao ler config de rede: {e}")
         return None
 
-# ── ROTAS ────────────────────────────────────────────────────────────────────
+# ── ROTAS ─────────────────────────────────────────────────────────────────────
 
 @sniffer_router.post("/start")
 async def start_sniffer(
-    dados: SnifferStartSchema,
+    dados:   SnifferStartSchema,
     usuario = Depends(require_role(["admin"]))
 ):
-    global _ips_instance, _sniffer_thread
-
-    if _ips_instance and _ips_instance.running:
+    est = _sniffer_estado()
+    if est.get('rodando'):
         raise HTTPException(status_code=400, detail="Sniffer já está a correr.")
+
+    if sys.platform.startswith("linux") and os.geteuid() != 0:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Permissão insuficiente para captura de pacotes no Linux. "
+                "Execute com sudo ou conceda CAP_NET_RAW e CAP_NET_ADMIN ao Python do .venv."
+            ),
+        )
 
     net_config      = _ler_network_config()
     interface_final = dados.interface
-    filtro_final    = dados.filtro
 
     if net_config:
         if not interface_final and net_config.capture_interface:
             interface_final = net_config.capture_interface
-        if not filtro_final and net_config.bpf_filter:
-            filtro_final = net_config.bpf_filter
+        # Carregar whitelist da BD
+        if net_config.whitelist:
+            for ip in net_config.whitelist.split(','):
+                ip = ip.strip()
+                if ip:
+                    _whitelist.add(ip)
 
-    _ips_instance = IPSRealtime(
-        interface = interface_final,
-        filtro    = filtro_final,
-        bloquear  = dados.bloquear,
-        callback  = _callback_pacote,
+    _whitelist.add('127.0.0.1')
+
+    loop = _get_loop()
+    _sniffer_iniciar(
+        interface = interface_final or 'enp0s3',
+        callback  = _callback_fluxo,
+        loop      = loop,
     )
-
-    if net_config and net_config.whitelist:
-        for ip in net_config.whitelist.split(','):
-            ip = ip.strip()
-            if ip:
-                _ips_instance.adicionar_whitelist(ip)
-
-    _ips_instance.adicionar_whitelist('127.0.0.1')
-
-    _sniffer_thread = threading.Thread(
-        target = _ips_instance.iniciar,
-        daemon = True
-    )
-    _sniffer_thread.start()
 
     return {
         "message":   "Sniffer iniciado",
-        "interface": interface_final or "todas",
-        "filtro":    filtro_final    or "nenhum",
+        "interface": interface_final or "enp0s3",
     }
 
 
@@ -193,22 +264,22 @@ async def start_sniffer(
 async def stop_sniffer(
     usuario = Depends(require_role(["admin"]))
 ):
-    global _ips_instance
-    if not _ips_instance or not _ips_instance.running:
+    est = _sniffer_estado()
+    if not est.get('rodando'):
         raise HTTPException(status_code=400, detail="Sniffer não está a correr.")
-    _ips_instance.parar()
+    _sniffer_parar()
     return {"message": "Sniffer parado com sucesso"}
 
 
 @sniffer_router.post("/reboot")
 async def reboot_sniffer(
-    dados: SnifferStartSchema,
+    dados:   SnifferStartSchema,
     usuario = Depends(require_role(["admin"]))
 ):
-    global _ips_instance
-    if _ips_instance and _ips_instance.running:
-        _ips_instance.parar()
-        import time; time.sleep(1)
+    est = _sniffer_estado()
+    if est.get('rodando'):
+        _sniffer_parar()
+        import time; time.sleep(2)
     return await start_sniffer(dados, usuario)
 
 
@@ -216,65 +287,45 @@ async def reboot_sniffer(
 async def get_status(
     usuario = Depends(require_role(["admin", "analista", "operador"]))
 ):
-    if not _ips_instance:
-        return {
-            "running":            False,
-            "contador":           0,
-            "anomalias":          0,
-            "bloqueios":          0,
-            "taxa_anomalia":      0,
-            "ips_bloqueados":     [],
-            "whitelist":          [],
-            "stats":              {},
-            "interface_ativas":   [],
-            "interface_inativas": [],
-            "portas_tcp":         {},
-            "portas_udp":         {},
-            "ultimos_pacotes":    [],
-            "contagem_ips":       {},
-        }
-
-    ips = _ips_instance
-    # contador_fluxos é o nome correcto no IPSRealtime actualizado
-    total = ips.contador_fluxos
+    est   = _sniffer_estado()
+    total = est.get('fluxos_processados', 0)
+    ataques = est.get('ataques_detetados', 0)
 
     return {
-        "running":            ips.running,
+        "running":            est.get('rodando', False),
+        "interface":          est.get('interface', ''),
         "contador":           total,
-        "anomalias":          ips.anomalias,
-        "bloqueios":          ips.bloqueios,
-        "taxa_anomalia":      round((ips.anomalias / total * 100), 2) if total > 0 else 0,
-        "ips_bloqueados":     list(ips.ips_bloqueados),
-        "whitelist":          list(ips.whitelist),
-        "stats":              ips.stats,
-        "interface_ativas":   [ips.get_friendly_interface_name(i) for i in ips.interface_ativas],
-        "interface_inativas": [ips.get_friendly_interface_name(i) for i in ips.interface_inativas],
-        "portas_tcp":         dict(sorted(ips.portas_tcp.items(),  key=lambda x: x[1], reverse=True)[:10]),
-        "portas_udp":         dict(sorted(ips.portas_udp.items(),  key=lambda x: x[1], reverse=True)[:10]),
-        "ultimos_pacotes":    list(ips.ultimos_fluxos)[-20:],   # ← corrigido
-        "contagem_ips":       dict(sorted(ips.contagem_ips.items(), key=lambda x: x[1], reverse=True)[:10]),
+        "anomalias":          ataques,
+        "bloqueios":          0,          # NFStream não bloqueia directamente
+        "taxa_anomalia":      round(ataques / total * 100, 2) if total > 0 else 0,
+        "uptime_s":           est.get('uptime_s', 0),
+        "whitelist":          list(_whitelist),
+        "ips_bloqueados":     [],
+        "stats":              {},
+        "interface_ativas":   [est.get('interface', '')],
+        "interface_inativas": [],
+        "portas_tcp":         {},
+        "portas_udp":         {},
+        "ultimos_pacotes":    [],
+        "contagem_ips":       {},
     }
 
 
 @sniffer_router.post("/whitelist/add")
 async def add_whitelist(
-    dados: WhitelistSchema,
+    dados:   WhitelistSchema,
     usuario = Depends(require_role(["admin"]))
 ):
-    if not _ips_instance:
-        raise HTTPException(status_code=400, detail="Sniffer não está ativo.")
-    _ips_instance.adicionar_whitelist(dados.ip)
+    _whitelist.add(dados.ip)
     return {"message": f"IP {dados.ip} adicionado à whitelist"}
 
 
 @sniffer_router.post("/whitelist/remove")
 async def remove_whitelist(
-    dados: WhitelistSchema,
+    dados:   WhitelistSchema,
     usuario = Depends(require_role(["admin"]))
 ):
-    if not _ips_instance:
-        raise HTTPException(status_code=400, detail="Sniffer não está ativo.")
-    _ips_instance.remover_whitelist(dados.ip)
+    _whitelist.discard(dados.ip)
     return {"message": f"IP {dados.ip} removido da whitelist"}
 
 
@@ -296,13 +347,13 @@ async def sniffer_ws(websocket: WebSocket, token: str = ""):
     _ws_clients.append(websocket)
 
     try:
-        if _ips_instance:
-            await websocket.send_json({
-                "tipo":      "status",
-                "running":   _ips_instance.running,
-                "contador":  _ips_instance.contador_fluxos,  # ← corrigido
-                "anomalias": _ips_instance.anomalias,
-            })
+        est = _sniffer_estado()
+        await websocket.send_json({
+            "tipo":      "status",
+            "running":   est.get('rodando', False),
+            "contador":  est.get('fluxos_processados', 0),
+            "anomalias": est.get('ataques_detetados', 0),
+        })
 
         while True:
             await asyncio.sleep(1)
@@ -317,7 +368,7 @@ async def sniffer_ws(websocket: WebSocket, token: str = ""):
 # ── Activar modelo ────────────────────────────────────────────────────────────
 @sniffer_router.post("/modelo/ativar")
 async def ativar_modelo(
-    dados: ModeloAtivoSchema,
+    dados:   ModeloAtivoSchema,
     usuario = Depends(require_role(["admin"]))
 ):
     modelo_path = PROJECT_PATH / "models" / dados.nome
@@ -333,4 +384,10 @@ async def ativar_modelo(
             "ativado_em": datetime.now().isoformat()
         }, f)
 
-    return {"message": f"Modelo {dados.nome} ativado com sucesso!"}
+    return {
+        "message":               f"Modelo {dados.nome} ativado com sucesso!",
+        "modelo_ativo":          dados.nome,
+        "arquivo_runtime":       "best_model.pkl",
+        "usa_no_proximo_start":  True,
+        "sniffer_em_execucao":   _sniffer_estado().get('rodando', False),
+    }

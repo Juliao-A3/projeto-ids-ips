@@ -1,8 +1,12 @@
 import sys
+import warnings
 from pathlib import Path
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+# Silence all sklearn parallel warnings
+warnings.filterwarnings("ignore", category=UserWarning, module="sklearn.utils.parallel")
 
 # Permite imports "backend.*" mesmo quando o servidor é iniciado dentro de backend/.
 PROJECT_ROOT = Path(__file__).resolve().parent.parent

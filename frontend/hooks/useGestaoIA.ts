@@ -55,10 +55,11 @@ export function useGestaoIA() {
   // Listar modelos disponíveis
   const fetchModelos = async () => {
     try {
+      setError('');
       const res = await api.get('/sniffer/ia/modelos');
       setModelos(res.data.modelos || []);
-    } catch {
-      setError('Erro ao listar modelos');
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Erro ao listar modelos');
     }
   };
 

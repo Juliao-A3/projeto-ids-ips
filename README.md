@@ -29,6 +29,7 @@ Observações:
 - Crie um arquivo `.env` na raiz do projeto com pelo menos `SECRET_KEY=uma_chave`.
 - O backend usa SQLite: o arquivo fica em `backend/database/banco.db` (será criado automaticamente quando necessário).
 - Se o servidor ficar reiniciando sozinho por mudanças em `.venv`, use sempre `--reload-dir backend` e `--reload-exclude ".venv/*"`.
+- O `requirements.txt` já instala `uvicorn[standard]`, necessário para WebSocket (`/sniffer/ws`). Se o ambiente já existia antes, rode `pip install "uvicorn[standard]"` uma vez.
 
 ## Frontend (Node / Vite / React + TypeScript)
 

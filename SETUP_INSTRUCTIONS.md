@@ -28,6 +28,7 @@ python -m uvicorn backend.main:app --reload
 Observações:
 - Crie um arquivo `.env` na raiz do projeto com pelo menos `SECRET_KEY=uma_chave`.
 - O backend usa SQLite: o arquivo fica em `backend/database/banco.db` (será criado automaticamente quando necessário).
+- O `requirements.txt` usa `uvicorn[standard]`, que habilita suporte WebSocket para endpoints como `/sniffer/ws`.
 
 ## Frontend (Node / Vite / React + TypeScript)
 

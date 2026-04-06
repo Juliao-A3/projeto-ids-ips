@@ -148,8 +148,8 @@ export function GestaoIA() {
     try {
       setAtivando(true);
       setAtivarMsg('');
-      await api.post('/sniffer/modelo/ativar', { nome: nomeModelo });
-      setAtivarMsg(`✓ Modelo ${nomeModelo} ativado com sucesso!`);
+      const res = await api.post('/sniffer/modelo/ativar', { nome: nomeModelo });
+      setAtivarMsg(`✓ ${res.data?.message || `Modelo ${nomeModelo} ativado com sucesso!`}`);
       fetchModelo();
       setTimeout(() => setAtivarMsg(''), 4000);
     } catch (err: any) {
