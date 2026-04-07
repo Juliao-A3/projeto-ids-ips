@@ -20,16 +20,6 @@ cd C:\Users\Herder Ernesto Ngola\Desktop\vscode\projeto-ids-ips\backend
 # ativar venv manualmente (se necessário)
 . .venv\Scripts\Activate.ps1
 
-# executar API (a partir da raiz do repositório)
-cd ..
-python -m uvicorn backend.main:app --reload
-```
-
-Observações:
-- Crie um arquivo `.env` na raiz do projeto com pelo menos `SECRET_KEY=uma_chave`.
-- O backend usa SQLite: o arquivo fica em `backend/database/banco.db` (será criado automaticamente quando necessário).
-- O `requirements.txt` usa `uvicorn[standard]`, que habilita suporte WebSocket para endpoints como `/sniffer/ws`.
-
 ## Frontend (Node / Vite / React + TypeScript)
 
 - Caminho do frontend: `frontend/`
@@ -41,7 +31,18 @@ Comandos (PowerShell) — execute a partir de `projeto-ids-ips\frontend`:
 cd C:\Users\Herder Ernesto Ngola\Desktop\vscode\projeto-ids-ips\frontend
 npm install
 npm run dev
+``` 
+
+# executar API (a partir da raiz do repositório)
+cd ..
+python -m uvicorn backend.main:app --reload
 ```
+
+Observações:
+- Crie um arquivo `.env` na raiz do projeto com pelo menos `SECRET_KEY=uma_chave`.
+- O backend usa SQLite: o arquivo fica em `backend/database/banco.db` (será criado automaticamente quando necessário).
+- O `requirements.txt` usa `uvicorn[standard]`, que habilita suporte WebSocket para endpoints como `/sniffer/ws`.
+
 
 Requisitos:
 - Instale Node.js (recomendo Node 18+ ou 20+).
