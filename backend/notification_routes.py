@@ -8,6 +8,58 @@ from datetime import datetime, timezone
 notification_router = APIRouter(prefix='/notifications', tags=['notifications'])
 
 
+def _channel_diagnostics(config: NotificationConfig) -> dict:
+    email_reasons: list[str] = []
+    telegram_reasons: list[str] = []
+    teams_reasons: list[str] = []
+
+    # Email checks
+    if not config.smtp_enabled:
+        email_reasons.append("smtp_enabled=false")
+    if not config.smtp_username:
+        email_reasons.append("smtp_username vazio")
+    if not config.smtp_password:
+        email_reasons.append("smtp_password vazio")
+    if not (config.smtp_server or config.email_provider in {"gmail", "outlook"}):
+        email_reasons.append("smtp_server não definido e provider desconhecido")
+
+    # Telegram checks
+    if not config.telegram_enabled:
+        telegram_reasons.append("telegram_enabled=false")
+    if not config.telegram_token:
+        telegram_reasons.append("telegram_token vazio")
+    if not config.telegram_chat_id:
+        telegram_reasons.append("telegram_chat_id vazio")
+
+    # Teams checks
+    if not config.teams_enabled:
+        teams_reasons.append("teams_enabled=false")
+    if not config.teams_webhook:
+        teams_reasons.append("teams_webhook vazio")
+
+    return {
+        "email": {
+            "enabled": bool(config.smtp_enabled),
+            "ready": len(email_reasons) == 0,
+            "provider": config.email_provider,
+            "server": config.smtp_server,
+            "port": config.smtp_port,
+            "ssl": bool(config.smtp_ssl),
+            "reasons": email_reasons,
+        },
+        "telegram": {
+            "enabled": bool(config.telegram_enabled),
+            "ready": len(telegram_reasons) == 0,
+            "reasons": telegram_reasons,
+        },
+        "teams": {
+            "enabled": bool(config.teams_enabled),
+            "ready": len(teams_reasons) == 0,
+            "reasons": teams_reasons,
+        },
+    }
+
+
 def get_or_create_config(session: Session) -> NotificationConfig:
     """Busca a config existente ou cria uma padrão"""
     config = session.query(NotificationConfig).first()
@@ -74,6 +126,44 @@ async def save_config(
     return {"mensagem": "Configurações salvas com sucesso"}
 
 
+@notification_router.get('/diagnostics')
+async def diagnostics(
+    usuario: Usuario = Depends(require_role(["admin"])),
+    session: Session = Depends(get_session)
+):
+    config = get_or_create_config(session)
+    channels = _channel_diagnostics(config)
+
+    trigger_config = {
+        "critical": bool(config.trigger_critical),
+        "high": bool(config.trigger_high),
+        "medium": bool(config.trigger_medium),
+    }
+
+    return {
+        "summary": {
+            "atualizado_em": config.atualizado_em,
+            "any_channel_enabled": any([
+                channels["email"]["enabled"],
+                channels["telegram"]["enabled"],
+                channels["teams"]["enabled"],
+            ]),
+            "any_channel_ready": any([
+                channels["email"]["ready"],
+                channels["telegram"]["ready"],
+                channels["teams"]["ready"],
+            ]),
+        },
+        "triggers": trigger_config,
+        "channels": channels,
+        "notes": [
+            "Severidades enviadas dependem de triggers (critical/high/medium).",
+            "No sniffer atual os eventos são gravados com severidade 'alta'.",
+            "Se trigger_high=false, alertas do sniffer não serão enviados.",
+        ],
+    }
+
+
 @notification_router.post('/test/email')
 async def test_email(
     usuario: Usuario = Depends(require_role(["admin"])),
@@ -130,8 +220,14 @@ async def test_telegram(
                 "text":    "AEGIS IDS/IPS — Teste de notificação Telegram"
             })
         if response.status_code != 200:
-            raise HTTPException(status_code=500, detail="Erro ao enviar mensagem Telegram")
+            detalhe = response.text
+            raise HTTPException(
+                status_code=500,
+                detail=f"Erro Telegram ({response.status_code}): {detalhe}"
+            )
         return {"mensagem": "Mensagem Telegram enviada com sucesso"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro: {str(e)}")
 

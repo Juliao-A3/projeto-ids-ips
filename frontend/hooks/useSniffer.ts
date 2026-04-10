@@ -32,6 +32,11 @@ export function useSniffer() {
   const [error, setError]       = useState('');
   const [pacotes, setPacotes]   = useState<any[]>([]);
   const wsRef                   = useRef<WebSocket | null>(null);
+  const runningRef              = useRef(false);
+
+  useEffect(() => {
+    runningRef.current = status.running;
+  }, [status.running]);
 
   // Busca status via HTTP
   const fetchStatus = useCallback(async () => {
@@ -43,23 +48,42 @@ export function useSniffer() {
     }
   }, []);
 
-  // Polling a cada 5 segundos
+  // Polling mais curto para reduzir atraso visual quando não há eventos WS
   useEffect(() => {
     fetchStatus();
-    const interval = setInterval(fetchStatus, 5000);
+    const interval = setInterval(fetchStatus, 2000);
     return () => clearInterval(interval);
   }, [fetchStatus]);
 
   // WebSocket — pacotes em tempo real
   const conectarWS = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) return;
+    if (wsRef.current && (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
+
     const token = localStorage.getItem('access_token');
-    const ws = new WebSocket(`ws://localhost:8000/sniffer/ws?token=${token}`);
+    const isHttps = window.location.protocol === 'https:';
+    const wsProto = isHttps ? 'wss' : 'ws';
+    const wsHost = window.location.hostname;
+    const wsUrl = `${wsProto}://${wsHost}:8000/sniffer/ws?token=${token ?? ''}`;
+    const ws = new WebSocket(wsUrl);
 
   ws.onmessage = (e) => {
     const data = JSON.parse(e.data);
     if (data.tipo === 'ataque' || data.tipo === 'normal') {  // ← era 'anomalia'
       setPacotes(prev => [data, ...prev].slice(0, 50));
+      setStatus(prev => {
+        const novoContador = (prev.contador || 0) + 1;
+        const novasAnomalias = (prev.anomalias || 0) + (data.tipo === 'ataque' ? 1 : 0);
+        const novaTaxa = novoContador > 0 ? Number(((novasAnomalias / novoContador) * 100).toFixed(2)) : 0;
+        return {
+          ...prev,
+          contador: novoContador,
+          anomalias: novasAnomalias,
+          taxa_anomalia: novaTaxa,
+        };
+      });
+      window.dispatchEvent(new CustomEvent('sniffer:update', { detail: data }));
     }
     if (data.tipo === 'status') {
       setStatus(prev => ({ ...prev, ...data }));
@@ -68,14 +92,27 @@ export function useSniffer() {
 
     ws.onerror = () => setError('Erro na ligação WebSocket');
     ws.onclose = () => {
-      // reconecta após 3 segundos se o sniffer estiver ativo
+      wsRef.current = null;
+      // reconecta rápido se o sniffer estiver ativo
       setTimeout(() => {
-        if (status.running) conectarWS();
-      }, 3000);
+        if (runningRef.current) conectarWS();
+      }, 1000);
     };
 
     wsRef.current = ws;
-  }, [status.running]);
+  }, []);
+
+  useEffect(() => {
+    if (status.running) {
+      conectarWS();
+      return;
+    }
+
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+  }, [status.running, conectarWS]);
 
   // Iniciar sniffer
   const iniciar = async (interface_?: string, filtro?: string, bloquear = true) => {

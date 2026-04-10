@@ -1,260 +1,300 @@
 """
-sniffer_realtime.py  ·  AEGIS – Captura de tráfego com NFStream
-----------------------------------------------------------------
-Substitui a captura packet-by-packet do Scapy por captura ao nível
-de FLUXO com NFStream. Vantagens:
+sniffer_realtime.py — Captura via cicflowmeter subprocess
+O cicflowmeter corre como processo externo e faz POST de cada fluxo
+para /sniffer/flow-input. O FastAPI classifica e envia pelo WebSocket.
 
-  • Features completas CIC-IDS 2018 (incl. Init Fwd/Bwd Win Byts)
-  • Sem reconstrução manual de estatísticas por pacote
-  • Compatível com a mesma interface callback/WebSocket já existente
-  • Funciona em Linux com permissões CAP_NET_RAW
-
-Timeouts usados:
-  idle_timeout   = 15 s  → fluxo sem actividade expira em 15 s
-  active_timeout = 60 s  → fluxo activo expira ao fim de 60 s
-
-Uso standalone (teste):
-  python sniffer_realtime.py --interface enp0s3
+API pública:
+    iniciar(interface, callback, loop)
+    parar()
+    estado()
+    processar_fluxo(flow_dict)  ← chamado pelo endpoint /sniffer/flow-input
 """
-
-from __future__ import annotations
 
 import sys
 import os
-import time
-import logging
-import asyncio
-import argparse
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import subprocess
 import threading
-from typing import Callable, Optional
+import asyncio
+import time
+from collections import defaultdict, deque
 
-# ── Path setup para imports locais ────────────────────────────────────────
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+from extractor import extrair_features
+from predictor import predict_flow
 
-from nfstream import NFStreamer                        # pip install nfstream
-from backend.scapy_module.extractor import extrair_features_nfstream
-from backend.scapy_module.predictor  import prever_fluxo
+# Configuração
+FASTAPI_PORT  = 8000
+FLOW_ENDPOINT = f"http://127.0.0.1:{FASTAPI_PORT}/sniffer/flow-input"
 
-# ── Logging ───────────────────────────────────────────────────────────────
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] SNIFFER | %(message)s',
-)
-logger = logging.getLogger(__name__)
+# Estado interno 
+_process:  subprocess.Popen | None  = None
+_thread:   threading.Thread | None  = None
+_stop_event = threading.Event()
 
-# ── Estado global ─────────────────────────────────────────────────────────
-_rodando:    bool               = False
-_interface:  str                = ''
-_callback:   Optional[Callable] = None
-_loop:       Optional[asyncio.AbstractEventLoop] = None
-_thread:     Optional[threading.Thread]          = None
-_stop_event: threading.Event    = threading.Event()
+_callback  = None
+_loop:     asyncio.AbstractEventLoop | None = None
 
-# Estatísticas da sessão
-_stats = {
-    'fluxos_processados': 0,
-    'ataques_detetados':  0,
-    'inicio':             0.0,
-}
+contador_fluxos   = 0
+ataques_detetados = 0
+_interface        = ""
+_start_time       = 0.0
+
+_SSH_BRUTE_WINDOW_S = 10.0
+_SSH_BRUTE_MIN_ATTEMPTS = 2
+_ssh_attempts: dict[tuple[str, str, int], deque[float]] = defaultdict(deque)
 
 
-# ── API pública ───────────────────────────────────────────────────────────
+def _safe_float(value, default=0.0):
+    try:
+        parsed = float(value)
+        return default if (parsed != parsed) else parsed
+    except (TypeError, ValueError):
+        return default
 
-def iniciar(
-    interface: str,
-    callback:  Optional[Callable] = None,
-    loop:      Optional[asyncio.AbstractEventLoop] = None,
-) -> None:
-    """
-    Inicia a captura NFStream em background.
-    Chamado pelo sniffer_routes.py quando o utilizador clica "Iniciar".
-    """
-    global _rodando, _interface, _callback, _loop, _thread
 
-    if _rodando:
-        logger.warning("Sniffer já está activo — ignora novo pedido de início.")
-        return
+def _safe_int(value, default=0):
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return default
 
-    _interface = interface
-    _callback  = callback
-    _loop      = loop
 
+def _is_ssh_bruteforce_candidate(flow_dict: dict) -> bool:
+    """Fluxo curto/repetitivo típico de tentativa de autenticação SSH falhada."""
+    dst_port = _safe_int(flow_dict.get("dst_port", 0))
+    protocol = _safe_int(flow_dict.get("protocol", 0))
+    syn_cnt = _safe_float(flow_dict.get("syn_flag_cnt", 0.0))
+    rst_cnt = _safe_float(flow_dict.get("rst_flag_cnt", 0.0))
+    fwd_pkts = _safe_float(flow_dict.get("tot_fwd_pkts", 0.0))
+    bwd_pkts = _safe_float(flow_dict.get("tot_bwd_pkts", 0.0))
+    duration_s = _safe_float(flow_dict.get("flow_duration", 0.0))
+
+    if dst_port != 22 or protocol != 6:
+        return False
+
+    total_pkts = fwd_pkts + bwd_pkts
+    return (
+        syn_cnt >= 2
+        and rst_cnt >= 1
+        and duration_s <= 1.5
+        and total_pkts <= 15
+    )
+
+
+def _is_ssh_early_suspicious(flow_dict: dict) -> bool:
+    """Heurística antecipada para não esperar vários fluxos antes de alertar."""
+    dst_port = _safe_int(flow_dict.get("dst_port", 0))
+    protocol = _safe_int(flow_dict.get("protocol", 0))
+    syn_cnt = _safe_float(flow_dict.get("syn_flag_cnt", 0.0))
+    rst_cnt = _safe_float(flow_dict.get("rst_flag_cnt", 0.0))
+    ack_cnt = _safe_float(flow_dict.get("ack_flag_cnt", 0.0))
+    fwd_pkts = _safe_float(flow_dict.get("tot_fwd_pkts", 0.0))
+    bwd_pkts = _safe_float(flow_dict.get("tot_bwd_pkts", 0.0))
+    duration_s = _safe_float(flow_dict.get("flow_duration", 0.0))
+
+    if dst_port != 22 or protocol != 6:
+        return False
+
+    total_pkts = fwd_pkts + bwd_pkts
+
+    # Primeiro estágio: conexão SSH curta com padrão de tentativa/falha.
+    if syn_cnt >= 3 and rst_cnt >= 1 and total_pkts <= 30:
+        return True
+
+    # Segundo estágio: bursts curtos de handshake sem troca normal de dados.
+    if syn_cnt >= 3 and duration_s <= 6 and total_pkts <= 20 and ack_cnt <= 2:
+        return True
+
+    # Terceiro estágio: tentativa SSH curta com poucos pacotes,
+    # mesmo sem RST explícito no primeiro fluxo.
+    if syn_cnt >= 2 and duration_s <= 20 and total_pkts <= 50:
+        return True
+
+    return False
+
+
+def _update_ssh_bruteforce_state(flow_dict: dict) -> int:
+    """Conta tentativas SSH suspeitas numa janela deslizante."""
+    dst_port = _safe_int(flow_dict.get("dst_port", 0))
+    protocol = _safe_int(flow_dict.get("protocol", 0))
+
+    # Conta toda conexão SSH/TCP para detectar brute force por frequência,
+    # mesmo quando flags variam entre tentativas.
+    if not (dst_port == 22 and protocol == 6):
+        return 0
+
+    src_ip = str(flow_dict.get("src_ip", ""))
+    dst_ip = str(flow_dict.get("dst_ip", ""))
+    dst_port = _safe_int(flow_dict.get("dst_port", 22))
+    key = (src_ip, dst_ip, dst_port)
+
+    now = time.time()
+    attempts = _ssh_attempts[key]
+    attempts.append(now)
+    cutoff = now - _SSH_BRUTE_WINDOW_S
+    while attempts and attempts[0] < cutoff:
+        attempts.popleft()
+
+    return len(attempts)
+
+
+# API pública 
+def estado() -> dict:
+    rodando = _process is not None and _process.poll() is None
+    return {
+        "rodando":            rodando,
+        "interface":          _interface,
+        "fluxos_processados": contador_fluxos,
+        "ataques_detetados":  ataques_detetados,
+        "uptime_s":           round(time.time() - _start_time, 1) if rodando and _start_time else 0,
+    }
+
+
+def iniciar(interface: str, callback, loop: asyncio.AbstractEventLoop):
+    global _callback, _loop, _stop_event, _thread
+    global contador_fluxos, ataques_detetados, _interface, _start_time
+
+    _callback         = callback
+    _loop             = loop
+    _interface        = interface
+    _start_time       = time.time()
     _stop_event.clear()
-    _stats['fluxos_processados'] = 0
-    _stats['ataques_detetados']  = 0
-    _stats['inicio']             = time.time()
+    contador_fluxos   = 0
+    ataques_detetados = 0
+    _ssh_attempts.clear()
 
-    _rodando = True
-    _thread  = threading.Thread(
-        target   = _captura_loop,
-        args     = (interface,),
-        daemon   = True,
-        name     = 'aegis-nfstream',
+    _thread = threading.Thread(
+        target=_lançar_cicflowmeter,
+        args=(interface,),
+        daemon=True,
+        name="sniffer-cicflowmeter",
     )
     _thread.start()
-    logger.info(f"✅ Captura NFStream iniciada em '{interface}'")
+    print(f"[Sniffer] Subprocess iniciado → interface: {interface} | endpoint: {FLOW_ENDPOINT}")
 
 
-def parar() -> None:
-    """
-    Sinaliza paragem do sniffer.
-    O loop termina ao processar o próximo fluxo expirado (≤ idle_timeout s).
-    """
-    global _rodando
-    _rodando = False
+def parar():
+    global _process, _thread
+
     _stop_event.set()
-    dur = round(time.time() - _stats['inicio'], 1) if _stats['inicio'] else 0
-    logger.info(
-        f"🛑 Sniffer parado | "
-        f"duração={dur}s | "
-        f"fluxos={_stats['fluxos_processados']} | "
-        f"ataques={_stats['ataques_detetados']}"
-    )
+
+    if _process and _process.poll() is None:
+        _process.terminate()
+        try:
+            _process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            _process.kill()
+        _process = None
+
+    if _thread and _thread.is_alive():
+        _thread.join(timeout=5)
+    _thread = None
+
+    print("[Sniffer] Captura parada.")
 
 
-def estado() -> dict:
-    """Devolve estado actual para polling do frontend."""
-    return {
-        'rodando':            _rodando,
-        'interface':          _interface,
-        'fluxos_processados': _stats['fluxos_processados'],
-        'ataques_detetados':  _stats['ataques_detetados'],
-        'uptime_s':           round(time.time() - _stats['inicio'], 1) if _stats['inicio'] else 0,
-    }
-
-
-# ── Loop interno ──────────────────────────────────────────────────────────
-
-def _captura_loop(interface: str) -> None:
+# Chamado pelo endpoint /sniffer/flow-input 
+async def processar_fluxo(flow_dict: dict):
     """
-    Corre numa thread dedicada.
-    NFStreamer emite fluxos completos quando estes expiram — exactamente
-    o formato em que o CIC-IDS 2018 foi gerado.
+    Chamado pelo FastAPI quando o cicflowmeter faz POST de um fluxo.
+    Classifica e envia para o callback (WebSocket).
     """
-    global _rodando
+    global contador_fluxos, ataques_detetados
 
     try:
-        streamer = NFStreamer(
-            source             = interface,
-            statistical_analysis = True,   # activa stats de pacotes e IAT
-            idle_timeout       = 5,        # expira fluxo após 5 s sem pacotes
-            active_timeout     = 20,        # expira fluxo activo após 20 s
-            accounting_mode    = 3,         # contabiliza headers IP+TCP
-            n_dissections      = 20,        # DPI para app_name (opcional)
+        features  = extrair_features(flow_dict)
+        resultado = predict_flow(features)
+
+        ssh_attempt_count = _update_ssh_bruteforce_state(flow_dict)
+        if not resultado.get("is_attack", False):
+            if _is_ssh_early_suspicious(flow_dict):
+                resultado["is_attack"] = True
+                resultado["label_str"] = "SSH-Suspected"
+                resultado["confidence"] = max(float(resultado.get("confidence", 0.0)), 0.89)
+            elif ssh_attempt_count >= _SSH_BRUTE_MIN_ATTEMPTS:
+                resultado["is_attack"] = True
+                resultado["label_str"] = "SSH-Bruteforce"
+                resultado["confidence"] = max(float(resultado.get("confidence", 0.0)), 0.92)
+
+        contador_fluxos += 1
+        if resultado["is_attack"]:
+            ataques_detetados += 1
+
+        # Log no terminal 
+        status = "⚠️  ATAQUE" if resultado["is_attack"] else "✅ Normal"
+        print(
+            f"[Fluxo #{contador_fluxos}] {status} | "
+            f"{flow_dict.get('src_ip','?')}:{flow_dict.get('src_port','?')} → "
+            f"{flow_dict.get('dst_ip','?')}:{flow_dict.get('dst_port','?')} | "
+            f"Label: {resultado['label_str']} | "
+            f"Confiança: {round(resultado['confidence']*100,2)}% | "
+            f"Risco: {round(max(0.0, 100.0 - (resultado['confidence'] * 100.0)), 2)}%"
         )
 
-        logger.info("NFStreamer a aguardar fluxos...")
+        if _callback is None:
+            return
 
-        for flow in streamer:
-            # ── Verificação de paragem entre fluxos ───────────────────────
-            if not _rodando or _stop_event.is_set():
-                logger.info("Stop recebido — a sair do loop NFStream.")
+        dados = {
+            "id":         contador_fluxos,
+            "src_ip":     flow_dict.get("src_ip",  ""),
+            "dst_ip":     flow_dict.get("dst_ip",  ""),
+            "src_port":   flow_dict.get("src_port", 0),
+            "dst_port":   flow_dict.get("dst_port", 0),
+            "protocol":   flow_dict.get("protocol", 0),
+            "label":      resultado["label_str"],
+            "confidence": round(resultado["confidence"] * 100, 2),
+            "is_attack":  resultado["is_attack"],
+            "label_int":  resultado["label_int"],
+        }
+
+        await _callback(dados)
+
+    except Exception as e:
+        print(f"[Sniffer] Erro ao classificar fluxo: {e}")
+
+
+# Subprocess 
+def _lançar_cicflowmeter(interface: str):
+    global _process
+
+    # Usa wrapper local para reduzir latência de export de fluxos.
+    python = sys.executable
+
+    cmd = [
+        python,
+        "-m",
+        "backend.scapy_module.cicflow_fast",
+        "--interface",
+        interface,
+        "--url",
+        FLOW_ENDPOINT,
+        "--expired-update",
+        "1.0",
+        "--packets-per-gc",
+        "50",
+    ]
+
+    print(f"[Sniffer] CMD: {' '.join(cmd)}")
+
+    try:
+        _process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+
+        for line in _process.stdout:
+            if _stop_event.is_set():
                 break
+            line = line.strip()
+            if line:
+                print(f"[cicflowmeter] {line}")
 
-            _processar_fluxo(flow)
+        _process.wait()
 
-    except PermissionError:
-        logger.error(
-            "❌ Permissão negada ao abrir a interface. "
-            "Executa: sudo setcap cap_net_raw,cap_net_admin=eip $(which python3)"
-        )
-    except Exception as exc:
-        logger.error(f"Erro no loop NFStream: {exc}", exc_info=True)
-    finally:
-        _rodando = False
-        logger.info("Thread NFStream terminada.")
-
-
-
-# Limiar mínimo de confiança para classificar como ataque.
-# Abaixo deste valor o fluxo é tratado como Benign (evita falsos positivos).
-CONFIDENCE_THRESHOLD: float = float(os.getenv("AEGIS_ATTACK_THRESHOLD", "0.46"))
-
-
-def _processar_fluxo(flow) -> None:
-    """Extrai features, corre o modelo e notifica via callback."""
-    _stats['fluxos_processados'] += 1
-
-    # 1 — Extracção de features CIC-IDS 2018
-    features = extrair_features_nfstream(flow)
-    if features is None:
-        return
-
-    # 2 — Predição pelo Random Forest
-    resultado = prever_fluxo(features)
-    if resultado is None:
-        return
-
-    label      = resultado.get('label',      'Benign')
-    confidence = resultado.get('confidence',  0.0)
-
-    # 3 — Limiar de confiança: abaixo de CONFIDENCE_THRESHOLD → Benign
-    if label.lower() != 'benign' and confidence < CONFIDENCE_THRESHOLD:
-        logger.debug(
-            f"⚪ Falso positivo suprimido: {label} ({confidence:.1%}) "
-            f"< limiar {CONFIDENCE_THRESHOLD:.0%}"
-        )
-        label     = 'Benign'
-        confidence = confidence   # mantém o valor real para o alerta
-
-    is_attack = label.lower() != 'benign'
-
-    if is_attack:
-        _stats['ataques_detetados'] += 1
-
-    # 3 — Construção do alerta
-    alerta = {
-        'src_ip'    : features.get('_src_ip',   '?'),
-        'dst_ip'    : features.get('_dst_ip',   '?'),
-        'src_port'  : int(features.get('_src_port', 0)),
-        'dst_port'  : int(features.get('_dst_port', 0)),
-        'protocol'  : int(features.get('_protocol',  0)),
-        'app'       : features.get('_app', 'Unknown'),
-        'label'     : label,
-        'confidence': round(float(confidence), 4),
-        'is_attack' : is_attack,
-        # Métricas do fluxo úteis para o dashboard
-        'flow_duration_s' : round(flow.bidirectional_duration_ms / 1000.0, 3),
-        'total_bytes'     : int(flow.bidirectional_bytes),
-        'total_packets'   : int(flow.bidirectional_packets),
-    }
-
-    # Log compacto
-    icone = '🚨' if is_attack else '✅'
-    logger.info(
-        f"{icone} {alerta['src_ip']}:{alerta['src_port']} → "
-        f"{alerta['dst_ip']}:{alerta['dst_port']} | "
-        f"{label} ({confidence:.1%}) | "
-        f"{alerta['flow_duration_s']}s | {alerta['total_bytes']} B"
-    )
-
-    # 4 — Envio assíncrono ao WebSocket
-    if _callback and _loop and not _loop.is_closed():
-        asyncio.run_coroutine_threadsafe(_callback(alerta), _loop)
-
-
-# ── Entrada standalone ────────────────────────────────────────────────────
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='AEGIS NFStream sniffer (teste standalone)')
-    parser.add_argument('--interface', '-i', default='enp0s3', help='Interface de rede')
-    args = parser.parse_args()
-
-    print(f"\n🔍 AEGIS NFStream Sniffer — interface: {args.interface}")
-    print("Ctrl+C para parar\n")
-
-    # Callback de teste: imprime no terminal
-    async def _print_alerta(alerta: dict) -> None:
-        print(f"  → {alerta}")
-
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
-    try:
-        iniciar(interface=args.interface, callback=_print_alerta, loop=loop)
-        loop.run_forever()
-    except KeyboardInterrupt:
-        print("\n⏹  A parar...")
-        parar()
-    finally:
-        loop.close()
+    except FileNotFoundError:
+        print(f"[Sniffer] ERRO: python não encontrado em {python}")
+    except Exception as e:
+        print(f"[Sniffer] Erro no subprocess: {e}")

@@ -64,7 +64,11 @@ export function LogCard() {
 
       <SidebarWrapper>
         <SidebarContainer>
-          <TrafficIntegrityStatus />
+          <TrafficIntegrityStatus
+            anomalyRate={status.taxa_anomalia || 0}
+            running={status.running}
+            hasAttack={(status.anomalias || 0) > 0}
+          />
         </SidebarContainer>
 
         <CoreContainer>

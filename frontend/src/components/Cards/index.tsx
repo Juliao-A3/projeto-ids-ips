@@ -16,15 +16,30 @@ interface StatsData {
     sistema_ativo?: boolean;
 }
 
+interface SnifferStatusData {
+    running: boolean;
+    anomalias: number;
+    taxa_anomalia: number;
+}
+
 export function Card() {
     const [stats, setStats] = useState<StatsData | null>(null);
+    const [snifferStatus, setSnifferStatus] = useState<SnifferStatusData | null>(null);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         const fetchStats = async () => {
             try {
-                const response = await api.get('/service/stats');
-                setStats(response.data);
+                const [statsResponse, snifferResponse] = await Promise.all([
+                    api.get('/service/stats'),
+                    api.get('/sniffer/status'),
+                ]);
+                setStats(statsResponse.data);
+                setSnifferStatus({
+                    running: !!snifferResponse.data?.running,
+                    anomalias: Number(snifferResponse.data?.anomalias || 0),
+                    taxa_anomalia: Number(snifferResponse.data?.taxa_anomalia || 0),
+                });
             } catch (error) {
                 console.error('Erro ao buscar stats:', error);
             } finally {
@@ -33,10 +48,29 @@ export function Card() {
         };
 
         fetchStats();
-        // Atualiza a cada 30 segundos
         const interval = setInterval(fetchStats, 30000);
-        return () => clearInterval(interval);
+        const onSnifferUpdate = () => {
+            fetchStats();
+        };
+
+        window.addEventListener('sniffer:update', onSnifferUpdate);
+        return () => {
+            clearInterval(interval);
+            window.removeEventListener('sniffer:update', onSnifferUpdate);
+        };
     }, []);
+
+    const attackDetected = (snifferStatus?.anomalias || 0) > 0;
+    const captureRunning = !!snifferStatus?.running;
+    const anomalyRate = Math.max(0, Math.min(100, Number(snifferStatus?.taxa_anomalia || 0)));
+    const integrityPercentage = captureRunning ? Math.max(0, 100 - anomalyRate) : 0;
+    const integrityLabel = !captureRunning
+        ? 'Captura parada'
+        : (anomalyRate >= 20 || attackDetected)
+            ? 'Crítico'
+            : anomalyRate >= 5
+                ? 'Atenção'
+                : 'Estável';
 
     if (loading) {
         return (
@@ -74,10 +108,12 @@ export function Card() {
             <CardContent>
                 <CardTitle>INTEGRIDADE DO TRAFEGO</CardTitle>
                 <CardInfo>
-                    <CardNum $isActive={stats?.sistema_ativo === true}>
-                        {stats?.sistema_ativo === true ? '✓ ATIVO' : '✗ INATIVO'}
+                    <CardNum $isActive={captureRunning}>
+                        {captureRunning ? `${integrityPercentage.toFixed(1)}%` : '0.0%'}
                     </CardNum>
-                    <CardSubtitle>{stats?.sistema_ativo === true ? 'Monitorando' : 'Verificar'}</CardSubtitle>
+                    <CardSubtitle>
+                        {captureRunning ? `${integrityLabel} (${anomalyRate.toFixed(1)}% anomalia)` : integrityLabel}
+                    </CardSubtitle>
                 </CardInfo>
             </CardContent>
         </CardContainer>

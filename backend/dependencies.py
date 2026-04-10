@@ -2,16 +2,14 @@ from fastapi import Depends, HTTPException
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 from backend.config import ALGORITHM, oauth2_schema, SECRET_KEY
-from backend.models import Usuario, engine, UserRole
-from sqlalchemy.orm import sessionmaker
+from backend.models import Usuario, SessionLocal, UserRole
 from functools import wraps
 from typing import List
 from fastapi import Query
     
 def get_session():
+    session = SessionLocal()
     try:
-        Session = sessionmaker(bind=engine)
-        session = Session()
         yield session
     finally:
         session.close()

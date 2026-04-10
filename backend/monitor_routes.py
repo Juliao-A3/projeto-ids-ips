@@ -1,11 +1,36 @@
 from fastapi import APIRouter, Depends, HTTPException
 from backend.dependencies import get_session, require_role
 from backend.models import Alerta, LogEvento, Usuario
+from backend.models import Severidade
 from backend.schemas import LogEventoSchema
 from backend.notification_service import notificar_alerta
 
 monitor_router = APIRouter(prefix='/monitor', tags=['monitoramento'])
 
+
+def _normalizar_severidade(valor):
+    if valor is None:
+        return Severidade.ALTA
+    if isinstance(valor, Severidade):
+        return valor
+    texto = str(valor).strip().lower()
+
+    if any(token in texto for token in ["ddos", "dos", "infilteration", "infiltration", "critica"]):
+        return Severidade.CRITICA
+    if any(token in texto for token in ["bruteforce", "brute force", "ssh", "ftp", "bot", "alta"]):
+        return Severidade.ALTA
+    if any(token in texto for token in ["scan", "probe", "suspected", "suspicious", "media"]):
+        return Severidade.MEDIA
+    if "baixa" in texto:
+        return Severidade.BAIXA
+
+    mapa = {
+        "critica": Severidade.CRITICA,
+        "alta": Severidade.ALTA,
+        "media": Severidade.MEDIA,
+        "baixa": Severidade.BAIXA,
+    }
+    return mapa.get(texto, Severidade.ALTA)
 
 @monitor_router.post('/salvar_alerta', status_code=201)
 async def salvar_alerta(
@@ -21,7 +46,7 @@ async def salvar_alerta(
             dest_port=log_evento.dest_port,
             protocolo=log_evento.protocolo,
             assinatura=log_evento.assinatura,
-            severidade=log_evento.severidade,
+            severidade=_normalizar_severidade(log_evento.severidade),
             status=log_evento.status
         )
         session.add(event_log)

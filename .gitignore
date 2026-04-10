@@ -59,6 +59,13 @@ data/cic-ids2017/*.csv
 # Manter modelos .pkl (não ignorar)
 # models/  ← NÃO descomentar, pois queres manter os modelos
 
+# Arquivos grandes que excedem limite do GitHub (100MB)
+estudo/archive/
+estudo/dataset_test/
+estudo/random_forest_server_model.pkl
+models/best_model.pkl
+models/random_forest_server_model_20.pkl
+
 # Manter estrutura de pastas vazias
 !.gitkeep
 

@@ -13,7 +13,7 @@ import pickle
 PROJECT_PATH = Path(__file__).parent.parent.parent
 sys.path.append(str(PROJECT_PATH))
 
-from backend.scapy_module.predictor import ModelPredictor
+from backend.scapy_module.predictor import ModelPredictor, le
 from backend.scapy_module.extractor import FlowExtractor
 from scapy.all import rdpcap
 from sklearn.preprocessing import StandardScaler
@@ -302,7 +302,7 @@ def testar_arquivo(arquivo_path, modelo_path=None, limite=None):
             print("\n⚠️ Coluna de label não encontrada. Classificando com o modelo...")
             
             y_pred = predictor.model.predict(X_scaled)
-            y_pred_binary = np.where(y_pred == 1, 0, 1)
+            y_pred_binary = _predizer_binario(y_pred)
             anomalias = np.sum(y_pred_binary == 1)
             
             print("\n" + "="*80)
@@ -323,7 +323,7 @@ def testar_arquivo(arquivo_path, modelo_path=None, limite=None):
             ).values
             
             y_pred = predictor.model.predict(X_scaled)
-            y_pred_binary = np.where(y_pred == 1, 0, 1)
+            y_pred_binary = _predizer_binario(y_pred)
             
             anomalias_detectadas = np.sum(y_pred_binary == 1)
             anomalias_reais = np.sum(y_true == 1)
@@ -364,6 +364,13 @@ def main():
     args = parser.parse_args()
     
     testar_arquivo(args.arquivo, args.modelo, args.limite)
+
+
+def _predizer_binario(y_pred):
+    """Converte a saída multiclasse do modelo em binário benigno/anomalia."""
+    benign_index = list(le.classes_).index('Benign')
+    y_pred_classes = np.argmax(y_pred, axis=1)
+    return np.where(y_pred_classes == benign_index, 0, 1)
 
 if __name__ == "__main__":
     main()

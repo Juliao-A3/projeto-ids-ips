@@ -7,10 +7,11 @@ import os
 import shutil
 import json
 import ipaddress
+from typing import Union
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-
+from scapy_module.sniffer_realtime import processar_fluxo as _sniffer_processar
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException
 from typing import Optional
 from pydantic import BaseModel
@@ -20,7 +21,7 @@ from models import IpsBloqueados, LogEvento, Alerta, Severidade, Status, Network
 from sqlalchemy.orm import Session
 from notification_service import notificar_alerta
 
-# ── NFStream sniffer (nova API) ───────────────────────────────────────────────
+# NFStream sniffer (nova API) 
 from scapy_module.sniffer_realtime import iniciar as _sniffer_iniciar
 from scapy_module.sniffer_realtime import parar   as _sniffer_parar
 from scapy_module.sniffer_realtime import estado  as _sniffer_estado
@@ -29,10 +30,10 @@ PROJECT_PATH = Path(__file__).resolve().parent.parent
 
 sniffer_router = APIRouter(prefix="/sniffer", tags=["Sniffer"])
 
-# ── Whitelist IPs exactos ─────────────────────────────────────────────────────
+# ── Whitelist IPs exactos 
 _whitelist: set[str] = {'127.0.0.1'}
 
-# ── Whitelist CIDR — ranges de fornecedores conhecidos e redes internas ───────
+# ── Whitelist CIDR — ranges de fornecedores conhecidos e redes internas 
 # Adiciona aqui qualquer range que não deva gerar alertas.
 _whitelist_cidr: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
 
@@ -89,11 +90,11 @@ def _ip_em_whitelist(ip: str) -> bool:
     except ValueError:
         return False
 
-# ── Estado global ────────────────────────────────────────────────────────────
-_ws_clients:      list = []
-_session_factory                  = None
+# ── Estado global
+_ws_clients: list = []
+_session_factory = None
 
-# ── Event loop dedicado ───────────────────────────────────────────────────────
+# ── Event loop dedicado 
 _loop: Optional[asyncio.AbstractEventLoop] = None
 
 def _get_loop():
@@ -103,7 +104,7 @@ def _get_loop():
         threading.Thread(target=_loop.run_forever, daemon=True).start()
     return _loop
 
-# ── Schemas ───────────────────────────────────────────────────────────────────
+# ── Schemas 
 class SnifferStartSchema(BaseModel):
     interface: Optional[str] = None
     filtro:    Optional[str] = None
@@ -115,7 +116,7 @@ class WhitelistSchema(BaseModel):
 class ModeloAtivoSchema(BaseModel):
     nome: str
 
-# ── Broadcast WebSocket ───────────────────────────────────────────────────────
+# ── Broadcast WebSocket 
 async def _broadcast_pacote(pkt_info: dict):
     mortos = []
     for ws in _ws_clients:
@@ -127,7 +128,7 @@ async def _broadcast_pacote(pkt_info: dict):
         if ws in _ws_clients:
             _ws_clients.remove(ws)
 
-# ── Callback do NFStream ──────────────────────────────────────────────────────
+# ── Callback do NFStream 
 async def _callback_fluxo(alerta: dict):
     """
     Chamado pelo sniffer_realtime.py para cada fluxo classificado.
@@ -135,7 +136,7 @@ async def _callback_fluxo(alerta: dict):
     protocol, app, label, confidence, is_attack, flow_duration_s,
     total_bytes, total_packets.
     """
-    # ── Filtro whitelist (IP exacto + ranges CIDR) ────────────────────────
+    # Filtro whitelist (IP exacto + ranges CIDR) 
     if _ip_em_whitelist(alerta.get("src_ip", "")) or \
        _ip_em_whitelist(alerta.get("dst_ip", "")):
         return
@@ -148,7 +149,7 @@ async def _callback_fluxo(alerta: dict):
         'confianca': round(alerta.get('confidence', 0) * 100, 1),
     }
 
-    # ── Guardar no banco se for ataque ────────────────────────────────────
+    # ── Guardar no banco se for ataque 
     if pkt_info['tipo'] == 'ataque' and _session_factory:
         try:
             session: Session = next(_session_factory())
@@ -165,8 +166,8 @@ async def _callback_fluxo(alerta: dict):
                 src_port   = pkt_info.get('src_port',  0),
                 dest_port  = pkt_info.get('dst_port',  0),
                 protocolo  = pkt_info.get('protocolo', 'OUTRO'),
+                severidade = _normalizar_severidade_alerta(True, pkt_info.get('label')),
                 assinatura = assinatura,
-                severidade = Severidade.ALTA,
                 status     = Status.PENDENTE,
             )
             session.add(evento)
@@ -182,24 +183,50 @@ async def _callback_fluxo(alerta: dict):
             session.add(alerta_db)
             session.commit()
 
-            asyncio.run_coroutine_threadsafe(
-                notificar_alerta(evento, session),
-                _get_loop()
-            )
+            try:
+                await notificar_alerta(evento, session)
+            except Exception as notify_err:
+                print(f"⚠ Erro ao enviar notificações: {notify_err}")
 
         except Exception as e:
+            try:
+                session.rollback()
+            except Exception:
+                pass
             print(f"❌ Erro ao guardar no banco: {e}")
         finally:
             session.close()
 
-    # ── Enviar para clientes WebSocket ────────────────────────────────────
+    # Enviar para clientes WebSocket 
     await _broadcast_pacote(pkt_info)
 
 
 def _proto_name(proto_int: int) -> str:
     return {6: 'TCP', 17: 'UDP', 1: 'ICMP'}.get(int(proto_int), 'OUTRO')
 
-# ── Helper — lê config de rede do banco ──────────────────────────────────────
+
+def _normalizar_severidade_alerta(is_attack: bool, label: Optional[str]) -> Union[Severidade, None]:
+    if not is_attack:
+        return None
+
+    label_norm = str(label or "").strip().lower()
+
+    # Critica: ataques volumétricos/disruptivos.
+    if any(token in label_norm for token in ["ddos", "dos", "infilteration", "infiltration"]):
+        return Severidade.CRITICA
+
+    # Alta: brute force e bot activity confirmada.
+    if any(token in label_norm for token in ["bruteforce", "brute force", "ssh-", "ftp-", "bot"]):
+        return Severidade.ALTA
+
+    # Media: padrões suspeitos/sondagem.
+    if any(token in label_norm for token in ["scan", "probe", "suspected", "suspicious"]):
+        return Severidade.MEDIA
+
+    # Fallback seguro para ataque desconhecido.
+    return Severidade.ALTA
+
+# Helper — lê config de rede do banco 
 def _ler_network_config():
     if not _session_factory:
         return None
@@ -212,7 +239,7 @@ def _ler_network_config():
         print(f"⚠ Erro ao ler config de rede: {e}")
         return None
 
-# ── ROTAS ─────────────────────────────────────────────────────────────────────
+# ── ROTAS 
 
 @sniffer_router.post("/start")
 async def start_sniffer(
@@ -248,15 +275,17 @@ async def start_sniffer(
     _whitelist.add('127.0.0.1')
 
     loop = _get_loop()
+    interface_capture = interface_final or 'eth0'
+
     _sniffer_iniciar(
-        interface = interface_final or 'enp0s3',
+        interface = interface_capture,
         callback  = _callback_fluxo,
         loop      = loop,
     )
 
     return {
         "message":   "Sniffer iniciado",
-        "interface": interface_final or "enp0s3",
+        "interface": interface_capture,
     }
 
 
@@ -329,7 +358,7 @@ async def remove_whitelist(
     return {"message": f"IP {dados.ip} removido da whitelist"}
 
 
-# ── WebSocket ─────────────────────────────────────────────────────────────────
+# WebSocket 
 @sniffer_router.websocket("/ws")
 async def sniffer_ws(websocket: WebSocket, token: str = ""):
     if not _session_factory:
@@ -365,7 +394,7 @@ async def sniffer_ws(websocket: WebSocket, token: str = ""):
         session.close()
 
 
-# ── Activar modelo ────────────────────────────────────────────────────────────
+# Activar modelo 
 @sniffer_router.post("/modelo/ativar")
 async def ativar_modelo(
     dados:   ModeloAtivoSchema,
@@ -391,3 +420,23 @@ async def ativar_modelo(
         "usa_no_proximo_start":  True,
         "sniffer_em_execucao":   _sniffer_estado().get('rodando', False),
     }
+# endpoint que recebe os fluxos do cicflowmeter
+
+from fastapi import Request
+from fastapi.responses import JSONResponse
+
+@sniffer_router.post("/flow-input")
+async def receber_fluxo(request: Request):
+    """
+    O cicflowmeter faz POST aqui com o JSON de cada fluxo terminado.
+    Classifica e transmite pelo WebSocket.
+    """
+    try:
+        flow_dict = await request.json()
+        loop = _get_loop()
+        asyncio.run_coroutine_threadsafe(
+            _sniffer_processar(flow_dict), loop
+        )
+        return JSONResponse({"status": "ok"})
+    except Exception as e:
+        return JSONResponse({"status": "error", "detail": str(e)}, status_code=500)
