@@ -42,7 +42,10 @@ _start_time       = 0.0
 
 _SSH_BRUTE_WINDOW_S = 10.0
 _SSH_BRUTE_MIN_ATTEMPTS = 2
+_FTP_BRUTE_MIN_ATTEMPTS = 2
 _ssh_attempts: dict[tuple[str, str, int], deque[float]] = defaultdict(deque)
+_ftp_attempts: dict[tuple[str, str, int], deque[float]] = defaultdict(deque)
+_ENABLE_HEURISTIC_ATTACK_OVERRIDE = os.getenv("ENABLE_HEURISTIC_ATTACK_OVERRIDE", "1") == "1"
 
 
 def _safe_float(value, default=0.0):
@@ -114,6 +117,33 @@ def _is_ssh_early_suspicious(flow_dict: dict) -> bool:
     return False
 
 
+def _is_ftp_early_suspicious(flow_dict: dict) -> bool:
+    """Heurística antecipada para tentativas FTP repetidas com falha."""
+    dst_port = _safe_int(flow_dict.get("dst_port", 0))
+    protocol = _safe_int(flow_dict.get("protocol", 0))
+    syn_cnt = _safe_float(flow_dict.get("syn_flag_cnt", 0.0))
+    rst_cnt = _safe_float(flow_dict.get("rst_flag_cnt", 0.0))
+    ack_cnt = _safe_float(flow_dict.get("ack_flag_cnt", 0.0))
+    fwd_pkts = _safe_float(flow_dict.get("tot_fwd_pkts", 0.0))
+    bwd_pkts = _safe_float(flow_dict.get("tot_bwd_pkts", 0.0))
+    duration_s = _safe_float(flow_dict.get("flow_duration", 0.0))
+
+    if dst_port != 21 or protocol != 6:
+        return False
+
+    total_pkts = fwd_pkts + bwd_pkts
+
+    # Fluxo FTP curto com reset explícito costuma indicar tentativa falhada.
+    if syn_cnt >= 2 and rst_cnt >= 1 and duration_s <= 2 and total_pkts <= 25:
+        return True
+
+    # Sequência curta de handshakes sem sessão estável de controlo.
+    if syn_cnt >= 2 and duration_s <= 8 and total_pkts <= 20 and ack_cnt <= 3:
+        return True
+
+    return False
+
+
 def _update_ssh_bruteforce_state(flow_dict: dict) -> int:
     """Conta tentativas SSH suspeitas numa janela deslizante."""
     dst_port = _safe_int(flow_dict.get("dst_port", 0))
@@ -131,6 +161,31 @@ def _update_ssh_bruteforce_state(flow_dict: dict) -> int:
 
     now = time.time()
     attempts = _ssh_attempts[key]
+    attempts.append(now)
+    cutoff = now - _SSH_BRUTE_WINDOW_S
+    while attempts and attempts[0] < cutoff:
+        attempts.popleft()
+
+    return len(attempts)
+
+
+def _update_ftp_bruteforce_state(flow_dict: dict) -> int:
+    """Conta tentativas FTP suspeitas numa janela deslizante."""
+    dst_port = _safe_int(flow_dict.get("dst_port", 0))
+    protocol = _safe_int(flow_dict.get("protocol", 0))
+
+    # Conta toda conexão FTP/TCP para detectar brute force por frequência,
+    # mesmo quando flags variam entre tentativas.
+    if not (dst_port == 21 and protocol == 6):
+        return 0
+
+    src_ip = str(flow_dict.get("src_ip", ""))
+    dst_ip = str(flow_dict.get("dst_ip", ""))
+    dst_port = _safe_int(flow_dict.get("dst_port", 21))
+    key = (src_ip, dst_ip, dst_port)
+
+    now = time.time()
+    attempts = _ftp_attempts[key]
     attempts.append(now)
     cutoff = now - _SSH_BRUTE_WINDOW_S
     while attempts and attempts[0] < cutoff:
@@ -163,6 +218,7 @@ def iniciar(interface: str, callback, loop: asyncio.AbstractEventLoop):
     contador_fluxos   = 0
     ataques_detetados = 0
     _ssh_attempts.clear()
+    _ftp_attempts.clear()
 
     _thread = threading.Thread(
         target=_lançar_cicflowmeter,
@@ -206,15 +262,26 @@ async def processar_fluxo(flow_dict: dict):
         features  = extrair_features(flow_dict)
         resultado = predict_flow(features)
 
-        ssh_attempt_count = _update_ssh_bruteforce_state(flow_dict)
-        if not resultado.get("is_attack", False):
+        # Por padrão, usa somente o resultado do modelo.
+        # Para reativar override heurístico: ENABLE_HEURISTIC_ATTACK_OVERRIDE=1
+        if _ENABLE_HEURISTIC_ATTACK_OVERRIDE and not resultado.get("is_attack", False):
+            ssh_attempt_count = _update_ssh_bruteforce_state(flow_dict)
+            ftp_attempt_count = _update_ftp_bruteforce_state(flow_dict)
             if _is_ssh_early_suspicious(flow_dict):
                 resultado["is_attack"] = True
-                resultado["label_str"] = "SSH-Suspected"
+                resultado["label_str"] = "SSH-Bruteforce"
                 resultado["confidence"] = max(float(resultado.get("confidence", 0.0)), 0.89)
             elif ssh_attempt_count >= _SSH_BRUTE_MIN_ATTEMPTS:
                 resultado["is_attack"] = True
                 resultado["label_str"] = "SSH-Bruteforce"
+                resultado["confidence"] = max(float(resultado.get("confidence", 0.0)), 0.92)
+            elif _is_ftp_early_suspicious(flow_dict):
+                resultado["is_attack"] = True
+                resultado["label_str"] = "FTP-BruteForce"
+                resultado["confidence"] = max(float(resultado.get("confidence", 0.0)), 0.89)
+            elif ftp_attempt_count >= _FTP_BRUTE_MIN_ATTEMPTS:
+                resultado["is_attack"] = True
+                resultado["label_str"] = "FTP-BruteForce"
                 resultado["confidence"] = max(float(resultado.get("confidence", 0.0)), 0.92)
 
         contador_fluxos += 1
