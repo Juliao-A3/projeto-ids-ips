@@ -6,6 +6,7 @@ import sys
 import os
 import shutil
 import json
+from collections import defaultdict, deque
 from typing import Union
 from pathlib import Path
 
@@ -36,6 +37,9 @@ _whitelist_manager = get_whitelist()
 # ── Estado global
 _ws_clients: list = []
 _session_factory = None
+_contagem_ips: defaultdict[str, int] = defaultdict(int)
+_ultimos_pacotes: deque[dict] = deque(maxlen=50)
+_stats_lock = threading.Lock()
 
 # ── Event loop dedicado 
 _loop: Optional[asyncio.AbstractEventLoop] = None
@@ -134,18 +138,28 @@ async def _callback_fluxo(alerta: dict):
     protocol, app, label, confidence, is_attack, flow_duration_s,
     total_bytes, total_packets.
     """
-    # Filtro whitelist (IP exacto + ranges CIDR) 
-    if _whitelist_manager.is_ip_whitelisted(alerta.get("src_ip", "")) or \
-       _whitelist_manager.is_ip_whitelisted(alerta.get("dst_ip", "")):
+    # Filtro whitelist apenas para tráfego totalmente interno/infra.
+    # Se apenas uma ponta estiver na whitelist, mantém o log para o frontend.
+    src_whitelisted = _whitelist_manager.is_ip_whitelisted(alerta.get("src_ip", ""))
+    dst_whitelisted = _whitelist_manager.is_ip_whitelisted(alerta.get("dst_ip", ""))
+    if src_whitelisted and dst_whitelisted:
         return
 
     # Normalizar para o formato que o frontend e o banco esperam
     pkt_info = {
         **alerta,
+        'timestamp': datetime.now().isoformat(),
         'tipo':      'ataque' if alerta.get('is_attack') else 'normal',
         'protocolo': _proto_name(alerta.get('protocol', 0)),
         'confianca': round(alerta.get('confidence', 0) * 100, 1),
     }
+
+    with _stats_lock:
+        _ultimos_pacotes.appendleft(pkt_info)
+        if pkt_info['tipo'] == 'ataque':
+            src_ip = str(pkt_info.get('src_ip', '')).strip()
+            if src_ip:
+                _contagem_ips[src_ip] += 1
 
     # Enviar para clientes WebSocket imediatamente para reduzir latencia visual.
     await _broadcast_pacote(pkt_info)
@@ -235,6 +249,10 @@ async def start_sniffer(
         loop      = loop,
     )
 
+    with _stats_lock:
+        _contagem_ips.clear()
+        _ultimos_pacotes.clear()
+
     return {
         "message":   "Sniffer iniciado",
         "interface": interface_capture,
@@ -271,6 +289,9 @@ async def get_status(
     est   = _sniffer_estado()
     total = est.get('fluxos_processados', 0)
     ataques = est.get('ataques_detetados', 0)
+    with _stats_lock:
+        contagem_ips = dict(_contagem_ips)
+        ultimos_pacotes = list(_ultimos_pacotes)
 
     return {
         "running":            est.get('rodando', False),
@@ -287,8 +308,8 @@ async def get_status(
         "interface_inativas": [],
         "portas_tcp":         {},
         "portas_udp":         {},
-        "ultimos_pacotes":    [],
-        "contagem_ips":       {},
+        "ultimos_pacotes":    ultimos_pacotes,
+        "contagem_ips":       contagem_ips,
     }
 
 
@@ -308,8 +329,9 @@ async def remove_whitelist(
     dados:   WhitelistSchema,
     usuario = Depends(require_role(["admin"]))
 ):
-    _whitelist.discard(dados.ip)
-    return {"message": f"IP {dados.ip} removido da whitelist"}
+    if _whitelist_manager.remove_exact_ip(dados.ip):
+        return {"message": f"IP {dados.ip} removido da whitelist"}
+    raise HTTPException(status_code=404, detail=f"IP {dados.ip} não está na whitelist")
 
 
 # WebSocket 
