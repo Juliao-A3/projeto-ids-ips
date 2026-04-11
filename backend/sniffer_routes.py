@@ -6,7 +6,6 @@ import sys
 import os
 import shutil
 import json
-import ipaddress
 from typing import Union
 from pathlib import Path
 
@@ -20,6 +19,7 @@ from dependencies import require_role, verificar_token_ws
 from models import IpsBloqueados, LogEvento, Alerta, Severidade, Status, NetworkConfig
 from sqlalchemy.orm import Session
 from notification_service import notificar_alerta
+from whitelist import get_whitelist
 
 # NFStream sniffer (nova API) 
 from scapy_module.sniffer_realtime import iniciar as _sniffer_iniciar
@@ -30,65 +30,8 @@ PROJECT_PATH = Path(__file__).resolve().parent.parent
 
 sniffer_router = APIRouter(prefix="/sniffer", tags=["Sniffer"])
 
-# ── Whitelist IPs exactos 
-_whitelist: set[str] = {'127.0.0.1'}
-
-# ── Whitelist CIDR — ranges de fornecedores conhecidos e redes internas 
-# Adiciona aqui qualquer range que não deva gerar alertas.
-_whitelist_cidr: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
-
-_CIDR_DEFAULTS = [
-    # Loopback / link-local / multicast
-    '127.0.0.0/8',
-    '169.254.0.0/16',
-    '224.0.0.0/4',
-    'ff00::/8',
-    'fe80::/10',
-    '224.0.0.251',
-    '239.255.255.250',
-    '255.255.255.255',
-    '192.168.100.76',
-    # Google (GCP + serviços)
-    '8.8.8.0/24',
-    '8.8.4.0/24',
-    '142.250.0.0/15',
-    '142.251.0.0/16',
-    '172.217.0.0/16',
-    '34.0.0.0/9',
-    '35.184.0.0/13',
-    # Microsoft / Azure
-    '13.64.0.0/11',
-    '13.96.0.0/13',
-    '13.104.0.0/14',
-    '20.0.0.0/8',
-    '40.64.0.0/10',
-    # GitHub
-    '140.82.112.0/20',
-    '192.30.252.0/22',
-    '185.199.108.0/22',
-    # Cloudflare
-    '1.1.1.0/24',
-    '1.0.0.0/24',
-    '104.16.0.0/13',
-    '104.24.0.0/14',
-]
-
-for _cidr in _CIDR_DEFAULTS:
-    try:
-        _whitelist_cidr.append(ipaddress.ip_network(_cidr, strict=False))
-    except ValueError:
-        pass
-
-
-def _ip_em_whitelist(ip: str) -> bool:
-    """Verifica IP exacto e ranges CIDR."""
-    if ip in _whitelist:
-        return True
-    try:
-        addr = ipaddress.ip_address(ip)
-        return any(addr in net for net in _whitelist_cidr)
-    except ValueError:
-        return False
+# ── Obter instância global da whitelist 
+_whitelist_manager = get_whitelist()
 
 # ── Estado global
 _ws_clients: list = []
@@ -128,6 +71,61 @@ async def _broadcast_pacote(pkt_info: dict):
         if ws in _ws_clients:
             _ws_clients.remove(ws)
 
+
+async def _persistir_alerta_async(pkt_info: dict):
+    """Persistencia e notificacao em segundo plano para nao atrasar os logs em tempo real."""
+    if pkt_info.get('tipo') != 'ataque' or not _session_factory:
+        return
+
+    session: Optional[Session] = None
+    try:
+        session = next(_session_factory())
+
+        assinatura = (
+            "RF_"
+            + pkt_info.get('label', 'ATAQUE')
+              .upper().replace(' ', '_').replace('-', '_')
+        )
+
+        evento = LogEvento(
+            src_ip     = pkt_info.get('src_ip',   'desconhecido'),
+            dest_ip    = pkt_info.get('dst_ip',   'desconhecido'),
+            src_port   = pkt_info.get('src_port',  0),
+            dest_port  = pkt_info.get('dst_port',  0),
+            protocolo  = pkt_info.get('protocolo', 'OUTRO'),
+            severidade = _normalizar_severidade_alerta(True, pkt_info.get('label')),
+            assinatura = assinatura,
+            status     = Status.PENDENTE,
+        )
+        session.add(evento)
+        session.flush()
+
+        alerta_db = Alerta(
+            evento_id            = evento.id,
+            ip_origem            = pkt_info.get('src_ip',  'desconhecido'),
+            ip_destino           = pkt_info.get('dst_ip',  'desconhecido'),
+            protocolo            = pkt_info.get('protocolo', 'OUTRO'),
+            porta_de_comunicacao = pkt_info.get('dst_port', 0),
+        )
+        session.add(alerta_db)
+        session.commit()
+
+        try:
+            await notificar_alerta(evento, session)
+        except Exception as notify_err:
+            print(f"⚠ Erro ao enviar notificações: {notify_err}")
+
+    except Exception as e:
+        if session is not None:
+            try:
+                session.rollback()
+            except Exception:
+                pass
+        print(f"❌ Erro ao guardar no banco: {e}")
+    finally:
+        if session is not None:
+            session.close()
+
 # ── Callback do NFStream 
 async def _callback_fluxo(alerta: dict):
     """
@@ -137,8 +135,8 @@ async def _callback_fluxo(alerta: dict):
     total_bytes, total_packets.
     """
     # Filtro whitelist (IP exacto + ranges CIDR) 
-    if _ip_em_whitelist(alerta.get("src_ip", "")) or \
-       _ip_em_whitelist(alerta.get("dst_ip", "")):
+    if _whitelist_manager.is_ip_whitelisted(alerta.get("src_ip", "")) or \
+       _whitelist_manager.is_ip_whitelisted(alerta.get("dst_ip", "")):
         return
 
     # Normalizar para o formato que o frontend e o banco esperam
@@ -149,56 +147,12 @@ async def _callback_fluxo(alerta: dict):
         'confianca': round(alerta.get('confidence', 0) * 100, 1),
     }
 
-    # ── Guardar no banco se for ataque 
-    if pkt_info['tipo'] == 'ataque' and _session_factory:
-        try:
-            session: Session = next(_session_factory())
-
-            assinatura = (
-                "RF_"
-                + pkt_info.get('label', 'ATAQUE')
-                  .upper().replace(' ', '_').replace('-', '_')
-            )
-
-            evento = LogEvento(
-                src_ip     = pkt_info.get('src_ip',   'desconhecido'),
-                dest_ip    = pkt_info.get('dst_ip',   'desconhecido'),
-                src_port   = pkt_info.get('src_port',  0),
-                dest_port  = pkt_info.get('dst_port',  0),
-                protocolo  = pkt_info.get('protocolo', 'OUTRO'),
-                severidade = _normalizar_severidade_alerta(True, pkt_info.get('label')),
-                assinatura = assinatura,
-                status     = Status.PENDENTE,
-            )
-            session.add(evento)
-            session.flush()
-
-            alerta_db = Alerta(
-                evento_id            = evento.id,
-                ip_origem            = pkt_info.get('src_ip',  'desconhecido'),
-                ip_destino           = pkt_info.get('dst_ip',  'desconhecido'),
-                protocolo            = pkt_info.get('protocolo', 'OUTRO'),
-                porta_de_comunicacao = pkt_info.get('dst_port', 0),
-            )
-            session.add(alerta_db)
-            session.commit()
-
-            try:
-                await notificar_alerta(evento, session)
-            except Exception as notify_err:
-                print(f"⚠ Erro ao enviar notificações: {notify_err}")
-
-        except Exception as e:
-            try:
-                session.rollback()
-            except Exception:
-                pass
-            print(f"❌ Erro ao guardar no banco: {e}")
-        finally:
-            session.close()
-
-    # Enviar para clientes WebSocket 
+    # Enviar para clientes WebSocket imediatamente para reduzir latencia visual.
     await _broadcast_pacote(pkt_info)
+
+    # Persistencia/notificacao em segundo plano para nao bloquear o stream dos logs.
+    if pkt_info['tipo'] == 'ataque':
+        asyncio.create_task(_persistir_alerta_async(pkt_info))
 
 
 def _proto_name(proto_int: int) -> str:
@@ -270,9 +224,7 @@ async def start_sniffer(
             for ip in net_config.whitelist.split(','):
                 ip = ip.strip()
                 if ip:
-                    _whitelist.add(ip)
-
-    _whitelist.add('127.0.0.1')
+                    _whitelist_manager.add_exact_ip(ip)
 
     loop = _get_loop()
     interface_capture = interface_final or 'eth0'
@@ -328,7 +280,7 @@ async def get_status(
         "bloqueios":          0,          # NFStream não bloqueia directamente
         "taxa_anomalia":      round(ataques / total * 100, 2) if total > 0 else 0,
         "uptime_s":           est.get('uptime_s', 0),
-        "whitelist":          list(_whitelist),
+        "whitelist":          list(_whitelist_manager.get_all_ips()),
         "ips_bloqueados":     [],
         "stats":              {},
         "interface_ativas":   [est.get('interface', '')],
@@ -345,8 +297,10 @@ async def add_whitelist(
     dados:   WhitelistSchema,
     usuario = Depends(require_role(["admin"]))
 ):
-    _whitelist.add(dados.ip)
-    return {"message": f"IP {dados.ip} adicionado à whitelist"}
+    if _whitelist_manager.add_exact_ip(dados.ip):
+        return {"message": f"IP {dados.ip} adicionado à whitelist"}
+    else:
+        raise HTTPException(status_code=400, detail=f"IP inválido: {dados.ip}")
 
 
 @sniffer_router.post("/whitelist/remove")

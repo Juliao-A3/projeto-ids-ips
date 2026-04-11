@@ -48,7 +48,7 @@ export function useSniffer() {
     }
   }, []);
 
-  // Polling mais curto para reduzir atraso visual quando não há eventos WS
+  // Polling de apoio quando não há eventos WS
   useEffect(() => {
     fetchStatus();
     const interval = setInterval(fetchStatus, 2000);
@@ -70,11 +70,21 @@ export function useSniffer() {
 
   ws.onmessage = (e) => {
     const data = JSON.parse(e.data);
-    if (data.tipo === 'ataque' || data.tipo === 'normal') {  // ← era 'anomalia'
+    const tipo = String(data.tipo || '').toLowerCase();
+    const isAtaque = tipo === 'ataque' || tipo === 'alerta' || tipo === 'anomalia';
+    const isNormal = tipo === 'normal';
+
+    if (isAtaque || isNormal) {
+      if (isAtaque) {
+        data.tipo = 'alerta';
+      } else if (isNormal) {
+        data.tipo = 'normal';
+      }
+
       setPacotes(prev => [data, ...prev].slice(0, 50));
       setStatus(prev => {
         const novoContador = (prev.contador || 0) + 1;
-        const novasAnomalias = (prev.anomalias || 0) + (data.tipo === 'ataque' ? 1 : 0);
+        const novasAnomalias = (prev.anomalias || 0) + (isAtaque ? 1 : 0);
         const novaTaxa = novoContador > 0 ? Number(((novasAnomalias / novoContador) * 100).toFixed(2)) : 0;
         return {
           ...prev,
@@ -102,15 +112,22 @@ export function useSniffer() {
     wsRef.current = ws;
   }, []);
 
+  // Liga o WebSocket assim que a tela abre para reduzir atraso na chegada dos logs
   useEffect(() => {
-    if (status.running) {
-      conectarWS();
-      return;
-    }
+    conectarWS();
+    return () => {
+      wsRef.current?.close();
+      wsRef.current = null;
+    };
+  }, [conectarWS]);
 
-    if (wsRef.current) {
+  useEffect(() => {
+    if (!status.running && wsRef.current) {
       wsRef.current.close();
       wsRef.current = null;
+    }
+    if (status.running) {
+      conectarWS();
     }
   }, [status.running, conectarWS]);
 
@@ -166,11 +183,6 @@ export function useSniffer() {
       setLoading(false);
     }
   };
-
-  // Limpa WebSocket ao desmontar
-  useEffect(() => {
-    return () => wsRef.current?.close();
-  }, []);
 
   return {
     status, loading, error, pacotes,
