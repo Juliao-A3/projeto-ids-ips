@@ -33,25 +33,119 @@ export function useSniffer() {
   const [pacotes, setPacotes]   = useState<any[]>([]);
   const wsRef                   = useRef<WebSocket | null>(null);
   const runningRef              = useRef(false);
+  const lastAnomaliasRef        = useRef(0);
 
   useEffect(() => {
     runningRef.current = status.running;
   }, [status.running]);
+
+  const normalizarPacote = useCallback((raw: any) => {
+    const pkt = { ...(raw || {}) };
+    const tipoRaw = String(pkt?.tipo || '').toLowerCase();
+    const labelRaw = String(pkt?.label || '').toLowerCase().trim();
+    const ataquePorTipo = tipoRaw === 'ataque' || tipoRaw === 'alerta' || tipoRaw === 'anomalia';
+    const ataquePorFlag = Boolean(pkt?.is_attack);
+    const ataquePorLabel = labelRaw !== '' && labelRaw !== 'benign' && labelRaw !== 'normal';
+    const isAtaque = ataquePorTipo || ataquePorFlag || ataquePorLabel;
+
+    pkt.tipo = isAtaque ? 'alerta' : 'normal';
+    if (!pkt.timestamp) {
+      pkt.timestamp = new Date().toISOString();
+    }
+    return pkt;
+  }, []);
+
+  const mergePacotes = useCallback((atuais: any[], novos: any[]) => {
+    const all = [...(atuais || []), ...(novos || [])];
+    const seen = new Set<string>();
+    const dedup: any[] = [];
+
+    for (const p of all) {
+      const key = [
+        p?.id ?? '',
+        p?.timestamp ?? '',
+        p?.src_ip ?? '',
+        p?.src_port ?? '',
+        p?.dst_ip ?? p?.dest_ip ?? '',
+        p?.dst_port ?? '',
+        p?.label ?? '',
+        p?.tipo ?? '',
+      ].join('|');
+
+      if (!seen.has(key)) {
+        seen.add(key);
+        dedup.push(p);
+      }
+    }
+
+    dedup.sort((a, b) => {
+      const aAlerta = String(a?.tipo || '').toLowerCase() === 'alerta' ? 1 : 0;
+      const bAlerta = String(b?.tipo || '').toLowerCase() === 'alerta' ? 1 : 0;
+      if (aAlerta !== bAlerta) {
+        return bAlerta - aAlerta;
+      }
+      const ta = new Date(a?.timestamp || 0).getTime();
+      const tb = new Date(b?.timestamp || 0).getTime();
+      return tb - ta;
+    });
+
+    return dedup.slice(0, 120);
+  }, []);
 
   // Busca status via HTTP
   const fetchStatus = useCallback(async () => {
     try {
       const res = await api.get('/sniffer/status');
       setStatus(res.data);
+      const anomaliasAtuais = Number(res.data?.anomalias || 0);
+
+      // Fallback: mantém os logs sincronizados com o backend caso o WS atrase/perca eventos.
+      if (Array.isArray(res.data?.ultimos_pacotes)) {
+        const pacotesStatus = res.data.ultimos_pacotes.map(normalizarPacote);
+        setPacotes((prev) => {
+          const merged = mergePacotes(prev, pacotesStatus);
+
+          // Failsafe: se contador de anomalias subir e não houver detalhe em tempo real,
+          // cria entrada sintética com os dados do alerta mais recente conhecido.
+          if (anomaliasAtuais > lastAnomaliasRef.current) {
+            const diff = Math.min(anomaliasAtuais - lastAnomaliasRef.current, 5);
+            const alertaBase =
+              merged.find((p) => String(p?.tipo || '').toLowerCase() === 'alerta') ||
+              pacotesStatus.find((p) => String(p?.tipo || '').toLowerCase() === 'alerta') ||
+              merged[0] ||
+              pacotesStatus[0] ||
+              {};
+
+            const agora = new Date().toISOString();
+            const sint = Array.from({ length: diff }).map((_, idx) => ({
+              id: `fallback-alert-${agora}-${idx}`,
+              timestamp: agora,
+              src_ip: alertaBase.src_ip || '-',
+              dst_ip: alertaBase.dst_ip || alertaBase.dest_ip || '-',
+              src_port: alertaBase.src_port || 0,
+              dst_port: alertaBase.dst_port || 0,
+              protocolo: alertaBase.protocolo || 'OUTRO',
+              label: alertaBase.label || 'ALERTA DETECTADO',
+              is_attack: true,
+              tipo: 'alerta',
+            }));
+
+            return mergePacotes(sint, merged);
+          }
+
+          return merged;
+        });
+      }
+      lastAnomaliasRef.current = anomaliasAtuais;
     } catch {
       setError('Erro ao obter status do sniffer');
     }
-  }, []);
+  }, [mergePacotes, normalizarPacote]);
 
   // Polling de apoio quando não há eventos WS
   useEffect(() => {
     fetchStatus();
-    const interval = setInterval(fetchStatus, 2000);
+    const interval = setInterval(fetchStatus, 500);
     return () => clearInterval(interval);
   }, [fetchStatus]);
 
@@ -70,18 +164,18 @@ export function useSniffer() {
 
   ws.onmessage = (e) => {
     const data = JSON.parse(e.data);
-    const tipo = String(data.tipo || '').toLowerCase();
-    const isAtaque = tipo === 'ataque' || tipo === 'alerta' || tipo === 'anomalia';
-    const isNormal = tipo === 'normal';
 
-    if (isAtaque || isNormal) {
-      if (isAtaque) {
-        data.tipo = 'alerta';
-      } else if (isNormal) {
-        data.tipo = 'normal';
-      }
+    if (data.tipo === 'status') {
+      setStatus(prev => ({ ...prev, ...data }));
+      return;
+    }
 
-      setPacotes(prev => [data, ...prev].slice(0, 50));
+    // Pacote em tempo real: normaliza antes de inserir para não perder alertas.
+    if (data && (data.src_ip || data.dst_ip || data.dest_ip)) {
+      const pkt = normalizarPacote(data);
+      const isAtaque = pkt.tipo === 'alerta';
+
+      setPacotes((prev) => mergePacotes([pkt], prev));
       setStatus(prev => {
         const novoContador = (prev.contador || 0) + 1;
         const novasAnomalias = (prev.anomalias || 0) + (isAtaque ? 1 : 0);
@@ -93,10 +187,7 @@ export function useSniffer() {
           taxa_anomalia: novaTaxa,
         };
       });
-      window.dispatchEvent(new CustomEvent('sniffer:update', { detail: data }));
-    }
-    if (data.tipo === 'status') {
-      setStatus(prev => ({ ...prev, ...data }));
+      window.dispatchEvent(new CustomEvent('sniffer:update', { detail: pkt }));
     }
   };
 
@@ -106,11 +197,11 @@ export function useSniffer() {
       // reconecta rápido se o sniffer estiver ativo
       setTimeout(() => {
         if (runningRef.current) conectarWS();
-      }, 1000);
+      }, 100);
     };
 
     wsRef.current = ws;
-  }, []);
+  }, [mergePacotes, normalizarPacote]);
 
   // Liga o WebSocket assim que a tela abre para reduzir atraso na chegada dos logs
   useEffect(() => {
@@ -136,6 +227,8 @@ export function useSniffer() {
     try {
       setLoading(true);
       setError('');
+      // Abre WS já no arranque para reduzir latência dos primeiros logs.
+      conectarWS();
       await api.post('/sniffer/start', {
         interface: interface_ || null,
         filtro:    filtro    || null,

@@ -51,8 +51,9 @@ _interface        = ""
 _start_time       = 0.0
 
 _SSH_BRUTE_WINDOW_S = 10.0
+_FTP_BRUTE_WINDOW_S = 20.0
 _SSH_BRUTE_MIN_ATTEMPTS = 2
-_FTP_BRUTE_MIN_ATTEMPTS = 2
+_FTP_BRUTE_MIN_ATTEMPTS = 3
 _WEB_BRUTE_MIN_ATTEMPTS = 3
 _XSS_MIN_ATTEMPTS = 3
 _WEB_PORTS = {80, 443, 8080, 8443}
@@ -139,6 +140,7 @@ def _is_ftp_early_suspicious(flow_dict: dict) -> bool:
     syn_cnt = _safe_float(flow_dict.get("syn_flag_cnt", 0.0))
     rst_cnt = _safe_float(flow_dict.get("rst_flag_cnt", 0.0))
     ack_cnt = _safe_float(flow_dict.get("ack_flag_cnt", 0.0))
+    psh_cnt = _safe_float(flow_dict.get("psh_flag_cnt", 0.0))
     fwd_pkts = _safe_float(flow_dict.get("tot_fwd_pkts", 0.0))
     bwd_pkts = _safe_float(flow_dict.get("tot_bwd_pkts", 0.0))
     duration_s = _safe_float(flow_dict.get("flow_duration", 0.0))
@@ -148,15 +150,37 @@ def _is_ftp_early_suspicious(flow_dict: dict) -> bool:
 
     total_pkts = fwd_pkts + bwd_pkts
 
-    # Fluxo FTP curto com reset explícito costuma indicar tentativa falhada.
-    if syn_cnt >= 2 and rst_cnt >= 1 and duration_s <= 2 and total_pkts <= 25:
+    # Padrão FTP de tentativa curta com resposta de falha no canal de controlo.
+    if syn_cnt >= 1 and ack_cnt >= 1 and duration_s <= 12 and 6 <= total_pkts <= 45 and fwd_pkts >= 2 and (rst_cnt >= 1 or psh_cnt >= 1):
         return True
 
-    # Sequência curta de handshakes sem sessão estável de controlo.
-    if syn_cnt >= 2 and duration_s <= 8 and total_pkts <= 20 and ack_cnt <= 3:
+    # Burst de sessões FTP curtas sem evolução para transferência de dados.
+    if syn_cnt >= 2 and duration_s <= 8 and total_pkts <= 28 and ack_cnt <= 4 and bwd_pkts <= 12:
         return True
 
     return False
+
+
+def _is_ftp_bruteforce_candidate(flow_dict: dict) -> bool:
+    """Candidato de tentativa FTP para contagem por frequência."""
+    dst_port = _safe_int(flow_dict.get("dst_port", 0))
+    protocol = _safe_int(flow_dict.get("protocol", 0))
+    syn_cnt = _safe_float(flow_dict.get("syn_flag_cnt", 0.0))
+    ack_cnt = _safe_float(flow_dict.get("ack_flag_cnt", 0.0))
+    fwd_pkts = _safe_float(flow_dict.get("tot_fwd_pkts", 0.0))
+    bwd_pkts = _safe_float(flow_dict.get("tot_bwd_pkts", 0.0))
+    duration_s = _safe_float(flow_dict.get("flow_duration", 0.0))
+
+    if dst_port != 21 or protocol != 6:
+        return False
+
+    total_pkts = fwd_pkts + bwd_pkts
+    return (
+        syn_cnt >= 1
+        and ack_cnt >= 1
+        and duration_s <= 20
+        and 4 <= total_pkts <= 60
+    )
 
 
 def _update_ssh_bruteforce_state(flow_dict: dict) -> int:
@@ -200,9 +224,8 @@ def _update_ftp_bruteforce_state(flow_dict: dict) -> int:
     dst_port = _safe_int(flow_dict.get("dst_port", 0))
     protocol = _safe_int(flow_dict.get("protocol", 0))
 
-    # Conta toda conexão FTP/TCP para detectar brute force por frequência,
-    # mesmo quando flags variam entre tentativas.
-    if not (dst_port == 21 and protocol == 6):
+    # Conta apenas tentativas FTP candidatas, evitando sessões legítimas longas.
+    if not (dst_port == 21 and protocol == 6 and _is_ftp_bruteforce_candidate(flow_dict)):
         return 0
 
     src_ip = str(flow_dict.get("src_ip", ""))
@@ -213,7 +236,7 @@ def _update_ftp_bruteforce_state(flow_dict: dict) -> int:
     now = time.time()
     attempts = _ftp_attempts[key]
     attempts.append(now)
-    cutoff = now - _SSH_BRUTE_WINDOW_S
+    cutoff = now - _FTP_BRUTE_WINDOW_S
     while attempts and attempts[0] < cutoff:
         attempts.popleft()
 
@@ -469,9 +492,6 @@ async def processar_fluxo(flow_dict: dict):
             f"Risco: {round(max(0.0, 100.0 - (resultado['confidence'] * 100.0)), 2)}%"
         )
 
-        if _callback is None:
-            return
-
         dados = {
             "id":         contador_fluxos,
             "src_ip":     flow_dict.get("src_ip",  ""),
@@ -485,10 +505,17 @@ async def processar_fluxo(flow_dict: dict):
             "label_int":  resultado["label_int"],
         }
 
-        await _callback(dados)
+        if _callback is not None:
+            try:
+                await _callback(dados)
+            except Exception as cb_err:
+                print(f"[Sniffer] Erro ao enviar callback de fluxo: {cb_err}")
+
+        return dados
 
     except Exception as e:
         print(f"[Sniffer] Erro ao classificar fluxo: {e}")
+        return None
 
 
 # Subprocess 

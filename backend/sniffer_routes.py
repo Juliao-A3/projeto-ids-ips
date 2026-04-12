@@ -138,39 +138,50 @@ async def _callback_fluxo(alerta: dict):
     protocol, app, label, confidence, is_attack, flow_duration_s,
     total_bytes, total_packets.
     """
-    # Filtro whitelist apenas para tráfego totalmente interno/infra.
-    # Se apenas uma ponta estiver na whitelist, mantém o log para o frontend.
-    src_whitelisted = _whitelist_manager.is_ip_whitelisted(alerta.get("src_ip", ""))
-    dst_whitelisted = _whitelist_manager.is_ip_whitelisted(alerta.get("dst_ip", ""))
-    if src_whitelisted and dst_whitelisted:
-        return
+    try:
+        if not isinstance(alerta, dict):
+            return
 
-    # Normalizar para o formato que o frontend e o banco esperam
-    pkt_info = {
-        **alerta,
-        'timestamp': datetime.now().isoformat(),
-        'tipo':      'ataque' if alerta.get('is_attack') else 'normal',
-        'protocolo': _proto_name(alerta.get('protocol', 0)),
-        'confianca': round(alerta.get('confidence', 0) * 100, 1),
-    }
+        # Filtro whitelist apenas para tráfego totalmente interno/infra.
+        # Se apenas uma ponta estiver na whitelist, mantém o log para o frontend.
+        src_whitelisted = _whitelist_manager.is_ip_whitelisted(alerta.get("src_ip", ""))
+        dst_whitelisted = _whitelist_manager.is_ip_whitelisted(alerta.get("dst_ip", ""))
+        if src_whitelisted and dst_whitelisted:
+            return
 
-    with _stats_lock:
-        _ultimos_pacotes.appendleft(pkt_info)
+        # Normalizar para o formato que o frontend e o banco esperam
+        pkt_info = {
+            **alerta,
+            'timestamp': datetime.now().isoformat(),
+            'tipo':      'ataque' if alerta.get('is_attack') else 'normal',
+            'protocolo': _proto_name(alerta.get('protocol', 0)),
+            'confianca': round(alerta.get('confidence', 0) * 100, 1),
+        }
+
+        with _stats_lock:
+            _ultimos_pacotes.appendleft(pkt_info)
+            if pkt_info['tipo'] == 'ataque':
+                src_ip = str(pkt_info.get('src_ip', '')).strip()
+                if src_ip:
+                    _contagem_ips[src_ip] += 1
+
+        # Enviar para clientes WebSocket imediatamente para reduzir latencia visual.
+        await _broadcast_pacote(pkt_info)
+
+        # Persistencia/notificacao em segundo plano para nao bloquear o stream dos logs.
         if pkt_info['tipo'] == 'ataque':
-            src_ip = str(pkt_info.get('src_ip', '')).strip()
-            if src_ip:
-                _contagem_ips[src_ip] += 1
+            asyncio.create_task(_persistir_alerta_async(pkt_info))
 
-    # Enviar para clientes WebSocket imediatamente para reduzir latencia visual.
-    await _broadcast_pacote(pkt_info)
-
-    # Persistencia/notificacao em segundo plano para nao bloquear o stream dos logs.
-    if pkt_info['tipo'] == 'ataque':
-        asyncio.create_task(_persistir_alerta_async(pkt_info))
+    except Exception as e:
+        print(f"[sniffer_routes] Erro no callback de fluxo: {e}")
 
 
 def _proto_name(proto_int: int) -> str:
-    return {6: 'TCP', 17: 'UDP', 1: 'ICMP'}.get(int(proto_int), 'OUTRO')
+    try:
+        proto_num = int(proto_int)
+    except (TypeError, ValueError):
+        return 'OUTRO'
+    return {6: 'TCP', 17: 'UDP', 1: 'ICMP'}.get(proto_num, 'OUTRO')
 
 
 def _normalizar_severidade_alerta(is_attack: bool, label: Optional[str]) -> Union[Severidade, None]:
@@ -409,10 +420,35 @@ async def receber_fluxo(request: Request):
     """
     try:
         flow_dict = await request.json()
-        loop = _get_loop()
-        asyncio.run_coroutine_threadsafe(
-            _sniffer_processar(flow_dict), loop
-        )
+        dados = await _sniffer_processar(flow_dict)
+
+        # Fallback de entrega: garante histórico de logs no /sniffer/status
+        # mesmo quando o callback em tempo real falha.
+        if isinstance(dados, dict):
+            pkt_info = {
+                **dados,
+                "timestamp": datetime.now().isoformat(),
+                "tipo": "ataque" if dados.get("is_attack") else "normal",
+                "protocolo": _proto_name(dados.get("protocol", 0)),
+                "confianca": round(float(dados.get("confidence", 0)) * 100, 1),
+            }
+
+            with _stats_lock:
+                exists = any(
+                    p.get("id") == pkt_info.get("id")
+                    and p.get("src_ip") == pkt_info.get("src_ip")
+                    and p.get("dst_ip") == pkt_info.get("dst_ip")
+                    and p.get("dst_port") == pkt_info.get("dst_port")
+                    for p in _ultimos_pacotes
+                )
+                if not exists:
+                    _ultimos_pacotes.appendleft(pkt_info)
+                    if pkt_info["tipo"] == "ataque":
+                        src_ip = str(pkt_info.get("src_ip", "")).strip()
+                        if src_ip:
+                            _contagem_ips[src_ip] += 1
+
         return JSONResponse({"status": "ok"})
     except Exception as e:
+        print(f"[sniffer_routes] Erro em /flow-input: {e}")
         return JSONResponse({"status": "error", "detail": str(e)}, status_code=500)
