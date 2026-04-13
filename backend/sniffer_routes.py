@@ -21,6 +21,7 @@ from models import IpsBloqueados, LogEvento, Alerta, Severidade, Status, Network
 from sqlalchemy.orm import Session
 from notification_service import notificar_alerta
 from whitelist import get_whitelist
+from ips_service import IPSService
 
 # NFStream sniffer (nova API) 
 from scapy_module.sniffer_realtime import iniciar as _sniffer_iniciar
@@ -40,6 +41,7 @@ _session_factory = None
 _contagem_ips: defaultdict[str, int] = defaultdict(int)
 _ultimos_pacotes: deque[dict] = deque(maxlen=50)
 _stats_lock = threading.Lock()
+_ips_instance = IPSService(threshold=5)
 
 # ── Event loop dedicado 
 _loop: Optional[asyncio.AbstractEventLoop] = None
@@ -170,6 +172,18 @@ async def _callback_fluxo(alerta: dict):
 
         # Persistencia/notificacao em segundo plano para nao bloquear o stream dos logs.
         if pkt_info['tipo'] == 'ataque':
+            block_info = _ips_instance.register_malicious_flow(
+                src_ip=str(pkt_info.get('src_ip', '')).strip(),
+                reason=f"Auto-bloqueio IPS após {_ips_instance.threshold} fluxos maliciosos",
+                session_factory=_session_factory,
+            )
+            if block_info.get('blocked'):
+                pkt_info['ips_bloqueado'] = True
+                pkt_info['ips_threshold'] = _ips_instance.threshold
+                pkt_info['ips_count'] = block_info.get('count', _ips_instance.threshold)
+            elif block_info.get('already_blocked'):
+                pkt_info['ips_bloqueado'] = True
+
             asyncio.create_task(_persistir_alerta_async(pkt_info))
 
     except Exception as e:
@@ -260,6 +274,9 @@ async def start_sniffer(
         loop      = loop,
     )
 
+    _ips_instance.iniciar()
+    _ips_instance.reset()
+
     with _stats_lock:
         _contagem_ips.clear()
         _ultimos_pacotes.clear()
@@ -278,6 +295,7 @@ async def stop_sniffer(
     if not est.get('rodando'):
         raise HTTPException(status_code=400, detail="Sniffer não está a correr.")
     _sniffer_parar()
+    _ips_instance.parar()
     return {"message": "Sniffer parado com sucesso"}
 
 
@@ -309,11 +327,11 @@ async def get_status(
         "interface":          est.get('interface', ''),
         "contador":           total,
         "anomalias":          ataques,
-        "bloqueios":          0,          # NFStream não bloqueia directamente
+        "bloqueios":          _ips_instance.get_block_count(),
         "taxa_anomalia":      round(ataques / total * 100, 2) if total > 0 else 0,
         "uptime_s":           est.get('uptime_s', 0),
         "whitelist":          list(_whitelist_manager.get_all_ips()),
-        "ips_bloqueados":     [],
+        "ips_bloqueados":     _ips_instance.get_blocked_ips(),
         "stats":              {},
         "interface_ativas":   [est.get('interface', '')],
         "interface_inativas": [],
@@ -447,6 +465,13 @@ async def receber_fluxo(request: Request):
                         src_ip = str(pkt_info.get("src_ip", "")).strip()
                         if src_ip:
                             _contagem_ips[src_ip] += 1
+                            block_info = _ips_instance.register_malicious_flow(
+                                src_ip=src_ip,
+                                reason=f"Auto-bloqueio IPS após {_ips_instance.threshold} fluxos maliciosos",
+                                session_factory=_session_factory,
+                            )
+                            if block_info.get("blocked") or block_info.get("already_blocked"):
+                                pkt_info["ips_bloqueado"] = True
 
         return JSONResponse({"status": "ok"})
     except Exception as e:
