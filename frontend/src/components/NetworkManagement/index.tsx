@@ -10,7 +10,9 @@ import {
   Container, Content, Section, SectionHeader, SectionTitle,
   SectionContent, BridgeConfig, BridgeDescription, BridgeSettings,
   BridgeToggles, TwoColumnsWrapper, Footer, FooterButtons,
-  RestoreButton, SaveButton
+  RestoreButton, SaveButton, WhitelistEditor, WhitelistInputRow,
+  WhitelistInput, WhitelistAddButton, WhitelistList, WhitelistChip,
+  WhitelistChipButton, WhitelistHint, WhitelistError, Label,
 } from './styles';
 
 export function NetworkManagement() {
@@ -24,30 +26,83 @@ export function NetworkManagement() {
   const [captureInterface, setCaptureInterface] = useState('eth0');
   const [promiscuousMode, setPromiscuousMode]   = useState(true);
   const [bpfFilter, setBpfFilter]               = useState('');
-  const [whitelist, setWhitelist]               = useState('192.168.1.0/24, 10.0.0.0/8, 127.0.0.1');
+  const [whitelistEntries, setWhitelistEntries]  = useState<string[]>([]);
+  const [whitelistInput, setWhitelistInput]      = useState('');
+  const [whitelistError, setWhitelistError]      = useState('');
+  const [whitelistDirty, setWhitelistDirty]      = useState(false);
+
+  const parseWhitelist = (value: string) =>
+    Array.from(
+      new Set(
+        value
+          .split(/[\n,]/)
+          .map(entry => entry.trim())
+          .filter(Boolean)
+      )
+    );
+
+  const isValidIPv4 = (value: string) => {
+    const ipv4Pattern = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
+    return ipv4Pattern.test(value.trim());
+  };
+
+  const persistWhitelistEntries = (entries: string[]) => {
+    setWhitelistEntries(entries);
+    setWhitelistDirty(true);
+  };
 
   // sincroniza com dados do backend
   useEffect(() => {
-    if (config) {
+    if (config && !whitelistDirty) {
       setCaptureInterface(config.capture_interface);
       setPromiscuousMode(config.promiscuous_mode);
       setBpfFilter(config.bpf_filter);
-      setWhitelist(config.whitelist);
+      setWhitelistEntries(parseWhitelist(config.whitelist));
     }
-  }, [config]);
+  }, [config, whitelistDirty]);
 
   const interfaceOptions = interfaces.map(i => ({
     value: i.name,
     label: `${i.name} — ${i.ip} (${i.status})`
   }));
 
-  const handleSave = () => {
-    saveConfig({
+  const handleSave = async () => {
+    const saved = await saveConfig({
       capture_interface: captureInterface,
       promiscuous_mode:  promiscuousMode,
       bpf_filter:        bpfFilter,
-      whitelist,
+      whitelist: whitelistEntries.join(', '),
     });
+    if (saved) {
+      setWhitelistDirty(false);
+    }
+  };
+
+  const handleAddWhitelistIp = () => {
+    const candidate = whitelistInput.trim();
+    if (!candidate) {
+      setWhitelistError('Informe um IP válido.');
+      return;
+    }
+
+    if (!isValidIPv4(candidate)) {
+      setWhitelistError('IP inválido. Use IPv4 no formato 192.168.1.10.');
+      return;
+    }
+
+    if (whitelistEntries.includes(candidate)) {
+      setWhitelistError('Esse IP já está na lista branca.');
+      return;
+    }
+
+    persistWhitelistEntries([...whitelistEntries, candidate]);
+    setWhitelistInput('');
+    setWhitelistError('');
+  };
+
+  const handleRemoveWhitelistIp = (ip: string) => {
+    persistWhitelistEntries(whitelistEntries.filter(entry => entry !== ip));
+    setWhitelistError('');
   };
 
   return (
@@ -183,14 +238,61 @@ export function NetworkManagement() {
               <SectionTitle>LISTA BRANCA (WHITELIST)</SectionTitle>
             </SectionHeader>
             <SectionContent>
-              <TextArea
-                label="IPs CONFIÁVEIS / REDES LOCAIS"
-                value={whitelist}
-                onChange={setWhitelist}
-                placeholder="Ex: 192.168.1.0/24, 10.0.0.0/8, 127.0.0.1"
-                description="Estes IPs não serão analisados pelo motor Scapy."
-                rows={10}
-              />
+                <WhitelistEditor>
+                  <div>
+                    <Label>ADICIONAR IP À LISTA BRANCA</Label>
+                    <WhitelistInputRow>
+                      <WhitelistInput
+                        value={whitelistInput}
+                        onChange={(e) => {
+                          setWhitelistInput(e.target.value);
+                          if (whitelistError) setWhitelistError('');
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleAddWhitelistIp();
+                          }
+                        }}
+                        placeholder="Ex: 192.168.1.10"
+                      />
+                      <WhitelistAddButton
+                        type="button"
+                        onClick={handleAddWhitelistIp}
+                        disabled={!whitelistInput.trim()}
+                      >
+                        ADICIONAR
+                      </WhitelistAddButton>
+                    </WhitelistInputRow>
+                    <WhitelistHint>
+                      Apenas IPs IPv4 válidos podem ser adicionados aqui. Entradas já existentes, como redes CIDR, continuam preservadas na lista.
+                    </WhitelistHint>
+                    {whitelistError && <WhitelistError>{whitelistError}</WhitelistError>}
+                  </div>
+
+                  <div>
+                    <Label>IPS E REDES NA LISTA</Label>
+                    <WhitelistList>
+                      {whitelistEntries.length === 0 ? (
+                        <WhitelistHint>Nenhum IP configurado na whitelist.</WhitelistHint>
+                      ) : (
+                        whitelistEntries.map((ip) => (
+                          <WhitelistChip key={ip}>
+                            {ip}
+                            <WhitelistChipButton
+                              type="button"
+                              onClick={() => handleRemoveWhitelistIp(ip)}
+                              aria-label={`Remover ${ip}`}
+                              title="Remover"
+                            >
+                              ×
+                            </WhitelistChipButton>
+                          </WhitelistChip>
+                        ))
+                      )}
+                    </WhitelistList>
+                  </div>
+                </WhitelistEditor>
             </SectionContent>
           </Section>
 

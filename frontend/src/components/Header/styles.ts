@@ -12,9 +12,13 @@ export const SubtitleContainer = styled.div`
   }
 `;
 
-export const StatusText = styled.span`
+export const StatusText = styled.span<{ $tone?: 'success' | 'warning' | 'danger' | 'muted' }>`
   font-size: 14px;
-  color: ${(props) => props.theme.colors.success};
+  color: ${({ theme, $tone }) =>
+    $tone === 'warning' ? theme.colors.warning :
+    $tone === 'danger' ? theme.colors.danger :
+    $tone === 'muted' ? theme.colors.text.secondary :
+    theme.colors.success};
   font-weight: bold;
 `;
 

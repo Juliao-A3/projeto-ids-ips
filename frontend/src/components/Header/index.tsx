@@ -29,6 +29,14 @@ export function Header() {
   const navigate = useNavigate();
   const [metrics, setMetrics] = useState<{cpu_load:number;memory:number;network_gbps:number} | null>(null);
 
+  const systemStatus = !metrics
+    ? { label: 'A VERIFICAR...', tone: 'muted' as const }
+    : metrics.cpu_load >= 85 || metrics.memory >= 90
+      ? { label: 'Sistema Operacional Crítico', tone: 'danger' as const }
+      : metrics.cpu_load >= 65 || metrics.memory >= 75
+        ? { label: 'Sistema Operacional em Atenção', tone: 'warning' as const }
+        : { label: 'Sistema Operacional Estável', tone: 'success' as const };
+
   const formatNetworkSpeed = (gbps: number) => {
     if (!Number.isFinite(gbps) || gbps < 0) return '--';
     if (gbps >= 1) return `${gbps.toFixed(2)} Gbps`;
@@ -63,7 +71,7 @@ export function Header() {
           </div>
           <SubtitleContainer>
             <span>·</span>
-            <StatusText>Sistema Operacional Estável</StatusText>
+            <StatusText $tone={systemStatus.tone}>{systemStatus.label}</StatusText>
           </SubtitleContainer>
         </HeaderLeft>
 

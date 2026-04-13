@@ -107,9 +107,11 @@ export function useNetwork() {
       setConfig(data);
       setSuccessMsg('Configuração salva com sucesso!');
       setTimeout(() => setSuccessMsg(null), 3000);
+      return true;
     } catch {
       setError('Erro ao salvar configuração');
       setTimeout(() => setError(null), 3000);
+      return false;
     } finally {
       setSaving(false);
     }

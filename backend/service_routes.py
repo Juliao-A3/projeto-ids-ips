@@ -8,6 +8,20 @@ service_router = APIRouter(prefix='/service', tags=['stats'])
 _last_net_bytes: int | None = None
 _last_net_time: float | None = None
 
+
+def _get_active_interface_speed_gbps() -> float:
+    try:
+        import psutil
+
+        stats = psutil.net_if_stats()
+        for name, stat in stats.items():
+            if name == 'lo' or not stat.isup or not stat.speed:
+                continue
+            return float(stat.speed) / 1000.0
+    except Exception:
+        pass
+    return 0.0
+
 @service_router.get('/stats')
 async def get_stats(
     usuario: Usuario = Depends(require_role(["admin", "analista", "operador"])),
@@ -48,12 +62,14 @@ async def system_metrics(
         now = monotonic()
 
         global _last_net_bytes, _last_net_time
-        network_gbps = 0.0
+        network_gbps = _get_active_interface_speed_gbps()
         if _last_net_bytes is not None and _last_net_time is not None:
             delta_bytes = max(total_bytes - _last_net_bytes, 0)
             delta_time = max(now - _last_net_time, 1e-6)
             bits_per_second = (delta_bytes * 8) / delta_time
-            network_gbps = bits_per_second / 1_000_000_000
+            throughput_gbps = bits_per_second / 1_000_000_000
+            if throughput_gbps > 0:
+                network_gbps = throughput_gbps
 
         _last_net_bytes = total_bytes
         _last_net_time = now
