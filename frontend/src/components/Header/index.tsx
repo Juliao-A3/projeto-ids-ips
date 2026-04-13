@@ -29,6 +29,15 @@ export function Header() {
   const navigate = useNavigate();
   const [metrics, setMetrics] = useState<{cpu_load:number;memory:number;network_gbps:number} | null>(null);
 
+  const formatNetworkSpeed = (gbps: number) => {
+    if (!Number.isFinite(gbps) || gbps < 0) return '--';
+    if (gbps >= 1) return `${gbps.toFixed(2)} Gbps`;
+    const mbps = gbps * 1000;
+    if (mbps >= 1) return `${mbps.toFixed(1)} Mbps`;
+    const kbps = mbps * 1000;
+    return `${kbps.toFixed(0)} Kbps`;
+  };
+
   useEffect(() => {
     const fetchMetrics = async () => {
       try {
@@ -70,7 +79,7 @@ export function Header() {
             </StatusInfo>
             <StatusInfo>
               <Loadcpu>NETWORK</Loadcpu>
-              <SpeedStatus>{metrics ? `${metrics.network_gbps} Gbps` : '--'}</SpeedStatus>
+              <SpeedStatus>{metrics ? formatNetworkSpeed(metrics.network_gbps) : '--'}</SpeedStatus>
             </StatusInfo>
           </Metric>
         </HeaderCenter>

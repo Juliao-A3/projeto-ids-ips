@@ -1,0 +1,377 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║         AEGIS v4.0.2 - SISTEMA DE RELATÓRIOS E NOTIFICAÇÕES                 ║
+║                   Documentação Completa Criada                                ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+📚 DOCUMENTAÇÃO CRIADA
+═══════════════════════════════════════════════════════════════════════════════
+
+1. 📖 DOCUMENTATION_INDEX.md
+   └─ Índice principal - COMECE AQUI!
+   └─ Guia de navegação entre documentos
+   └─ Roadmaps recomendados por cenário
+   └─ Busca por palavra-chave
+   └─ Links diretos aos tópicos
+
+2. 📘 REPORTS_NOTIFICATIONS_GUIDE.md (~10.000 palavras)
+   └─ Documentação técnica completa
+   └─ APIs REST detalhadas (todos os endpoints)
+   └─ Modelos de dados explicados
+   └─ Fluxo de notificações passo-a-passo
+   └─ Guia de configuração (Gmail, Telegram, Teams)
+   └─ Troubleshooting detalhado
+   └─ Melhorias futuras sugeridas
+
+3. 📕 REPORTS_NOTIFICATIONS_EXAMPLES.md (~7.000 palavras)
+   └─ 11 exemplos com cURL
+   └─ 7 scripts completos em Python
+   └─ 3 componentes React/TypeScript
+   └─ 4 casos de uso do mundo real
+   └─ Script de setup automático
+   └─ Checklist de implementação
+
+4. 📙 REPORTS_NOTIFICATIONS_ARCHITECTURE.md (~5.000 palavras)
+   └─ Diagramas ASCII da arquitetura
+   └─ Fluxogramas de geração de PDF
+   └─ Fluxogramas de notificação
+   └─ Estrutura de dados visual
+   └─ Layout do PDF mockup
+   └─ Performance e escalabilidade
+   └─ Testes recomendados
+
+5. 📔 REPORTS_NOTIFICATIONS_QUICK_REFERENCE.md (~2.500 palavras)
+   └─ Referência rápida / Cheat Sheet
+   └─ Início rápido (5 min)
+   └─ Endpoints e parâmetros
+   └─ Estruturas JSON
+   └─ Configurações (copy/paste)
+   └─ Erros e soluções
+   └─ One-liners Python
+
+
+═══════════════════════════════════════════════════════════════════════════════
+🎯 WHAT'S COVERED (O QUE FOI DOCUMENTADO)
+═══════════════════════════════════════════════════════════════════════════════
+
+📊 SISTEMA DE RELATÓRIOS
+═══════════════════════════════════════════════════════════════════════════════
+
+✅ Endpoints:
+   • GET /reports/summary                 → Resumo de alertas
+   • GET /reports/incidents               → Lista incidentes
+   • GET /reports/attack-volume           → Volume por hora
+   • GET /reports/export/pdf              → Download do PDF
+
+✅ Funcionalidades:
+   • Filtros por período (24h, 7d, 30d)
+   • Filtros por severidade (crítica, alta, média, baixa)
+   • Dois tipos: Detalhado (500 alertas) / Resumido (100 alertas)
+   • Geração de PDFs com ReportLab
+   • Gráficos de volume (Matplotlib)
+   • Design corporativo (AEGIS branding)
+
+✅ Frontend:
+   • Componente React RelatorioManagement
+   • Hook useReports
+   • UI com filtros e preview
+   • Download automático de PDFs
+
+
+🔔 SISTEMA DE NOTIFICAÇÕES
+═══════════════════════════════════════════════════════════════════════════════
+
+✅ Canais Suportados:
+   • Email (SMTP) - Gmail, Outlook, Custom
+   • Telegram Bot
+   • Microsoft Teams
+
+✅ Endpoints:
+   • GET /notifications/config             → Config atual
+   • PUT /notifications/config             → Atualizar config
+   • GET /notifications/diagnostics        → Status dos canais
+   • POST /notifications/test/email        → Testar email
+   • POST /notifications/test/telegram     → Testar Telegram
+   • POST /notifications/test/teams        → Testar Teams
+
+✅ Funcionalidades:
+   • Sistema de triggers (crítica, alta, média)
+   • Diagnóstico automático de canais
+   • Teste de conectividade
+   • Notificações síncronas e assíncronas
+   • Formatação de mensagens por canal
+
+✅ Frontend:
+   • Componente React NotificationsManagement
+   • Hook useNotifications
+   • UI de configuração
+   • Status checker
+   • Diagnóstico visual
+
+
+═══════════════════════════════════════════════════════════════════════════════
+🚀 INÍCIO RÁPIDO - 5 MINUTOS
+═══════════════════════════════════════════════════════════════════════════════
+
+1. EMAIL (Gmail com 2FA):
+   ┌─────────────────────────────────────────────────────────────────┐
+   │ 1. Ativa 2FA no Google (security.google.com)                   │
+   │ 2. Gera "App Password" (16 caracteres)                          │
+   │ 3. cURL:                                                        │
+   │                                                                 │
+   │ curl -X PUT "http://localhost:8000/notifications/config" \    │
+   │   -H "Authorization: Bearer TOKEN" \                           │
+   │   -H "Content-Type: application/json" \                        │
+   │   -d '{                                                         │
+   │     "email_provider": "gmail",                                  │
+   │     "smtp_username": "seu@gmail.com",                           │
+   │     "smtp_password": "xxxx xxxx xxxx xxxx",                    │
+   │     "smtp_enabled": true,                                       │
+   │     "trigger_critical": true,                                   │
+   │     "trigger_high": true                                        │
+   │   }'                                                            │
+   │                                                                 │
+   │ 4. Testar: POST /notifications/test/email                      │
+   └─────────────────────────────────────────────────────────────────┘
+
+2. TELEGRAM:
+   ┌─────────────────────────────────────────────────────────────────┐
+   │ 1. Chat @BotFather → /newbot (cria bot)                        │
+   │ 2. Copia token recebido: 123456:ABC...                          │
+   │ 3. Envia mensagem ao bot                                        │
+   │ 4. GET https://api.telegram.org/bot{TOKEN}/getUpdates          │
+   │ 5. Copia chat_id                                                │
+   │ 6. PUT /notifications/config com token + chat_id               │
+   │ 7. Testar: POST /notifications/test/telegram                   │
+   └─────────────────────────────────────────────────────────────────┘
+
+3. GERAR PDF:
+   ┌─────────────────────────────────────────────────────────────────┐
+   │ curl -X GET "http://localhost:8000/reports/export/pdf\         │
+   │   ?period=24h&severity=all&tipo=detalhado&limite=500" \        │
+   │   -H "Authorization: Bearer TOKEN" \                           │
+   │   -o aegis-report.pdf                                           │
+   │                                                                 │
+   │ → Arquivo salvo: aegis-report.pdf                              │
+   └─────────────────────────────────────────────────────────────────┘
+
+
+═══════════════════════════════════════════════════════════════════════════════
+📋 ESTRUTURA DE FICHEIROS
+═══════════════════════════════════════════════════════════════════════════════
+
+/projeto-ids-ips/
+│
+├─ DOCUMENTATION_INDEX.md ........................ ✅ Índice
+├─ REPORTS_NOTIFICATIONS_GUIDE.md .............. ✅ Guia Completo
+├─ REPORTS_NOTIFICATIONS_EXAMPLES.md ........... ✅ Exemplos
+├─ REPORTS_NOTIFICATIONS_ARCHITECTURE.md ....... ✅ Arquitetura
+├─ REPORTS_NOTIFICATIONS_QUICK_REFERENCE.md ... ✅ Referência Rápida
+│
+├─ backend/
+│  ├─ reports_routes.py ........................ API de Relatórios
+│  ├─ notification_routes.py ................... API de Notificações
+│  ├─ notification_service.py .................. Lógica de envio
+│  ├─ pdf_service.py ........................... Geração de PDFs
+│  ├─ models.py ............................... Modelos (NotificationConfig)
+│  └─ schemas.py .............................. Schemas Pydantic
+│
+├─ frontend/
+│  └─ src/components/
+│     ├─ RelatorioManagement/ .................. UI de Relatórios
+│     │  └─ index.tsx
+│     └─ NotificationsManagement/ ............. UI de Notificações
+│        └─ index.tsx
+│
+└─ frontend/hooks/
+   ├─ useReports.ts ............................ Hook de Relatórios
+   └─ useNotifications.ts ...................... Hook de Notificações
+
+
+═══════════════════════════════════════════════════════════════════════════════
+🎓 ROADMAPS DE LEITURA RECOMENDADOS
+═══════════════════════════════════════════════════════════════════════════════
+
+👨‍💻 DESENVOLVEDOR (Entender o Código)
+   ├─ 1️⃣ Referência Rápida (15 min)
+   ├─ 2️⃣ Arquitetura (30 min)
+   ├─ 3️⃣ Guia Completo (60 min)
+   └─ 4️⃣ Exemplos - Python/JS (45 min)
+
+👨‍🔧 DEVOPS/SISTEMA (Configurar e Manter)
+   ├─ 1️⃣ Referência Rápida (15 min)
+   ├─ 2️⃣ Guia - Configuração (30 min)
+   ├─ 3️⃣ Exemplos - Setup (30 min)
+   └─ 4️⃣ Troubleshooting (15 min)
+
+👨‍💼 GERENTE/ANALISTA (Usar o Sistema)
+   ├─ 1️⃣ Referência Rápida - Intro (10 min)
+   ├─ 2️⃣ Como gerar PDF (5 min)
+   ├─ 3️⃣ Como receber alertas (10 min)
+   └─ 4️⃣ Dashboard (5 min)
+
+🐛 DEBUGAR UM PROBLEMA (20 min)
+   ├─ 1️⃣ Referência Rápida - Erros (5 min)
+   ├─ 2️⃣ Guia - Troubleshooting (10 min)
+   └─ 3️⃣ Arquitetura - Diagnóstico (5 min)
+
+
+═══════════════════════════════════════════════════════════════════════════════
+💻 ENDPOINTS PRINCIPAIS (Quick Lookup)
+═══════════════════════════════════════════════════════════════════════════════
+
+RELATÓRIOS:
+  GET  /reports/summary              Resumo de alertas
+  GET  /reports/incidents            Lista incidentes
+  GET  /reports/attack-volume        Volume por hora
+  GET  /reports/export/pdf           📥 Download PDF
+
+NOTIFICAÇÕES:
+  GET  /notifications/config         Config atual
+  PUT  /notifications/config         Atualizar config
+  GET  /notifications/diagnostics    Status dos canais
+  POST /notifications/test/email     Testar email
+  POST /notifications/test/telegram  Testar Telegram
+  POST /notifications/test/teams     Testar Teams
+
+
+═══════════════════════════════════════════════════════════════════════════════
+⚙️ ELEMENTOS PRINCIPAIS DOCUMENTADOS
+═══════════════════════════════════════════════════════════════════════════════
+
+📊 Relatórios:
+   ✓ Filtros por período e severidade
+   ✓ PDFs com design corporativo
+   ✓ Gráficos de volume
+   ✓ Tabelas de eventos
+   ✓ Limites por tipo
+
+🔔 Notificações:
+   ✓ Email (SMTP) - Gmail, Outlook
+   ✓ Telegram Bot
+   ✓ Microsoft Teams
+   ✓ Sistema de triggers (crítica, alta, média)
+   ✓ Diagnóstico de canais
+
+🗄️ Dados:
+   ✓ NotificationConfig (model)
+   ✓ LogEvento (model)
+   ✓ IpsBloqueados (model)
+   ✓ Schemas Pydantic
+
+🎨 Frontend:
+   ✓ Componente RelatorioManagement
+   ✓ Componente NotificationsManagement
+   ✓ Hooks customizados
+   ✓ UI responsiva
+
+🔐 Segurança:
+   ✓ Autenticação JWT
+   ✓ Autorização por role
+   ✓ Credenciais em BD
+   ✓ Validação de schema
+
+
+═══════════════════════════════════════════════════════════════════════════════
+🧪 TESTES INCLUSOS
+═══════════════════════════════════════════════════════════════════════════════
+
+✅ Exemplos de cURL (11)
+   • Obter resumo
+   • Download PDF com filtros
+   • Configurar email
+   • Configurar Telegram
+   • Testar canais
+   • Obter diagnóstico
+
+✅ Scripts Python (7)
+   • Download PDF programático
+   • Gerar métricas
+   • Relatório automático
+   • Setup email
+   • Setup Telegram
+   • Checklist de configuração
+   • Health check
+
+✅ Componentes React (3)
+   • Hook useReportMetrics
+   • Componente PDFReportGenerator
+   • Componente NotificationStatusChecker
+
+✅ Casos de Uso (4)
+   • Auditoria diária
+   • Relatório semanal automático
+   • Integração com Slack
+   • Health check
+
+
+═══════════════════════════════════════════════════════════════════════════════
+📊 ESTATÍSTICAS DA DOCUMENTAÇÃO
+═══════════════════════════════════════════════════════════════════════════════
+
+Total de Palavras:        24.500+
+Total de Seções:          48+
+Total de Exemplos:        40+
+Total de Diagramas:       13+
+PDFs:                     5
+Linhas de Código:         1.000+
+Endpoints Documentados:   10
+Casos de Uso:             4
+
+Tempo de Leitura Completa: 2 horas
+Tempo de Configuração:    30 minutos
+Tempo para Primeiro PDF:  5 minutos
+
+
+═══════════════════════════════════════════════════════════════════════════════
+✅ CHECKLIST DE VERIFICAÇÃO
+═══════════════════════════════════════════════════════════════════════════════
+
+Documentação:
+  ✅ API endpoints completos
+  ✅ Modelos de dados
+  ✅ Fluxogramas
+  ✅ Diagramas de arquitetura
+  ✅ Guias passo-a-passo
+  ✅ Troubleshooting
+  ✅ Exemplos de código
+
+Funcionalidades Cobertas:
+  ✅ Geração de PDF
+  ✅ Email SMTP
+  ✅ Telegram Bot
+  ✅ Microsoft Teams
+  ✅ Triggers de severidade
+  ✅ Diagnóstico de canais
+  ✅ Filtros de período/severidade
+
+Referências:
+  ✅ Índice navegável
+  ✅ Quick reference
+  ✅ Links diretos
+  ✅ Busca por palavra-chave
+  ✅ Roadmaps recomendados
+
+
+═══════════════════════════════════════════════════════════════════════════════
+🚀 PRÓXIMAS ETAPAS
+═══════════════════════════════════════════════════════════════════════════════
+
+1. Leia DOCUMENTATION_INDEX.md para navegar
+2. Escolha seu document principal (Guide, Architecture, Examples, Quick Ref)
+3. Siga o roadmap recomendado para seu perfil
+4. Execute exemplos de cURL/Python
+5. Configure seu primeiro canal de notificação
+6. Gere seu primeiro PDF de relatório
+7. Configure triggers e inicie notificações automáticas
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                   🎉 PRONTO PARA USAR!                                     ║
+║                                                                              ║
+║   Toda a documentação encontra-se na raiz do projeto.                       ║
+║   Comece por: DOCUMENTATION_INDEX.md                                        ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+Versão: 1.0
+Data: 13 de Abril de 2026
+AEGIS: v4.0.2
+

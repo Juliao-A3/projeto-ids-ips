@@ -32,6 +32,7 @@ export function useSniffer() {
   const [error, setError]       = useState('');
   const [pacotes, setPacotes]   = useState<any[]>([]);
   const wsRef                   = useRef<WebSocket | null>(null);
+  const wsRetryTimeoutRef       = useRef<number | null>(null);
   const runningRef              = useRef(false);
   const lastAnomaliasRef        = useRef(0);
 
@@ -156,11 +157,20 @@ export function useSniffer() {
     }
 
     const token = localStorage.getItem('access_token');
-    const isHttps = window.location.protocol === 'https:';
-    const wsProto = isHttps ? 'wss' : 'ws';
-    const wsHost = window.location.hostname;
-    const wsUrl = `${wsProto}://${wsHost}:8000/sniffer/ws?token=${token ?? ''}`;
+    if (!token) {
+      setError('Sem token para ligação WebSocket');
+      return;
+    }
+
+    const apiBase = String(api.defaults.baseURL || '').trim();
+    const apiUrl = apiBase ? new URL(apiBase, window.location.origin) : new URL(window.location.origin);
+    const wsProto = apiUrl.protocol === 'https:' ? 'wss' : 'ws';
+    const wsUrl = `${wsProto}://${apiUrl.host}/sniffer/ws?token=${encodeURIComponent(token)}`;
     const ws = new WebSocket(wsUrl);
+
+    ws.onopen = () => {
+      setError('');
+    };
 
   ws.onmessage = (e) => {
     const data = JSON.parse(e.data);
@@ -192,25 +202,40 @@ export function useSniffer() {
   };
 
     ws.onerror = () => setError('Erro na ligação WebSocket');
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       wsRef.current = null;
-      // reconecta rápido se o sniffer estiver ativo
-      setTimeout(() => {
-        if (runningRef.current) conectarWS();
-      }, 100);
+
+      // 1008 normalmente indica token inválido/autorização recusada.
+      if (event.code === 1008) {
+        setError('WebSocket recusado (token inválido ou expirado)');
+        return;
+      }
+
+      // Reconeção com pequeno atraso para evitar loop agressivo no Firefox.
+      if (runningRef.current) {
+        if (wsRetryTimeoutRef.current) {
+          window.clearTimeout(wsRetryTimeoutRef.current);
+        }
+        wsRetryTimeoutRef.current = window.setTimeout(() => {
+          conectarWS();
+        }, 1000);
+      }
     };
 
     wsRef.current = ws;
   }, [mergePacotes, normalizarPacote]);
 
-  // Liga o WebSocket assim que a tela abre para reduzir atraso na chegada dos logs
+  // Cleanup global do WebSocket
   useEffect(() => {
-    conectarWS();
     return () => {
+      if (wsRetryTimeoutRef.current) {
+        window.clearTimeout(wsRetryTimeoutRef.current);
+        wsRetryTimeoutRef.current = null;
+      }
       wsRef.current?.close();
       wsRef.current = null;
     };
-  }, [conectarWS]);
+  }, []);
 
   useEffect(() => {
     if (!status.running && wsRef.current) {

@@ -1,8 +1,12 @@
 from fastapi import APIRouter, Depends
+from time import monotonic
 from backend.dependencies import get_session, verificar_token, require_role
 from backend.models import IpsBloqueados, LogEvento, Status, Usuario
 
 service_router = APIRouter(prefix='/service', tags=['stats'])
+
+_last_net_bytes: int | None = None
+_last_net_time: float | None = None
 
 @service_router.get('/stats')
 async def get_stats(
@@ -39,7 +43,20 @@ async def system_metrics(
         cpu = psutil.cpu_percent(interval=1, percpu=False)
         mem_info = psutil.virtual_memory()
         mem = mem_info.percent
-        network_gbps = 1.0
+        net = psutil.net_io_counters()
+        total_bytes = int(net.bytes_sent + net.bytes_recv)
+        now = monotonic()
+
+        global _last_net_bytes, _last_net_time
+        network_gbps = 0.0
+        if _last_net_bytes is not None and _last_net_time is not None:
+            delta_bytes = max(total_bytes - _last_net_bytes, 0)
+            delta_time = max(now - _last_net_time, 1e-6)
+            bits_per_second = (delta_bytes * 8) / delta_time
+            network_gbps = bits_per_second / 1_000_000_000
+
+        _last_net_bytes = total_bytes
+        _last_net_time = now
         
         return {
             "cpu_load": float(round(cpu, 2)),

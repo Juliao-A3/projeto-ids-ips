@@ -73,9 +73,20 @@ export function useNetwork() {
       .finally(() => setLoading(false));
 
     // atualiza interfaces a cada 5 segundos
-    const interval = setInterval(fetchInterfaces, 5000);
-    return () => clearInterval(interval);
-  }, [fetchInterfaces]);
+    const interfaceInterval = setInterval(fetchInterfaces, 5000);
+    
+    // atualiza config (whitelist, bpf_filter) a cada 3 segundos
+    const configInterval = setInterval(fetchConfig, 3000);
+    
+    // atualiza IPs bloqueados a cada 4 segundos
+    const blockedIpsInterval = setInterval(fetchBlockedIps, 4000);
+    
+    return () => {
+      clearInterval(interfaceInterval);
+      clearInterval(configInterval);
+      clearInterval(blockedIpsInterval);
+    };
+  }, [fetchInterfaces, fetchConfig, fetchBlockedIps]);
 
   const unblockIp = async (id: number) => {
     try {

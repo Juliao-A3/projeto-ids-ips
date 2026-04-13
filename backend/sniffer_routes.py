@@ -80,57 +80,84 @@ async def _broadcast_pacote(pkt_info: dict):
 
 async def _persistir_alerta_async(pkt_info: dict):
     """Persistencia e notificacao em segundo plano para nao atrasar os logs em tempo real."""
-    if pkt_info.get('tipo') != 'ataque' or not _session_factory:
+    tipo = pkt_info.get('tipo')
+    
+    # Debug
+    if tipo != 'ataque':
+        print(f"[PERSIST] Alerta ignorado: tipo={tipo} (não é ataque)")
+        return
+    
+    if not _session_factory:
+        print("[PERSIST] ❌ Erro: _session_factory é None!")
         return
 
     session: Optional[Session] = None
     try:
-        session = next(_session_factory())
+        # Obter sessão
+        try:
+            session = next(_session_factory())
+            print("[PERSIST] ✓ Sessão criada com sucesso")
+        except Exception as sess_err:
+            print(f"[PERSIST] ❌ Erro ao criar sessão: {sess_err}")
+            raise
 
+        # Preparar dados
+        src_ip = pkt_info.get('src_ip', 'desconhecido')
+        dst_ip = pkt_info.get('dst_ip', 'desconhecido')
+        label = pkt_info.get('label', 'ATAQUE')
+        
         assinatura = (
-            "RF_"
-            + pkt_info.get('label', 'ATAQUE')
-              .upper().replace(' ', '_').replace('-', '_')
+            "RF_" + str(label).upper().replace(' ', '_').replace('-', '_')
         )
 
+        # ✅ Criar LogEvento
         evento = LogEvento(
-            src_ip     = pkt_info.get('src_ip',   'desconhecido'),
-            dest_ip    = pkt_info.get('dst_ip',   'desconhecido'),
-            src_port   = pkt_info.get('src_port',  0),
-            dest_port  = pkt_info.get('dst_port',  0),
+            src_ip     = src_ip,
+            dest_ip    = dst_ip,
+            src_port   = int(pkt_info.get('src_port', 0) or 0),
+            dest_port  = int(pkt_info.get('dst_port', 0) or 0),
             protocolo  = pkt_info.get('protocolo', 'OUTRO'),
-            severidade = _normalizar_severidade_alerta(True, pkt_info.get('label')),
+            severidade = _normalizar_severidade_alerta(True, label),
             assinatura = assinatura,
             status     = Status.PENDENTE,
         )
         session.add(evento)
         session.flush()
+        print(f"[PERSIST] ✓ LogEvento criado (ID: {evento.id})")
 
+        # ✅ Criar Alerta
         alerta_db = Alerta(
             evento_id            = evento.id,
-            ip_origem            = pkt_info.get('src_ip',  'desconhecido'),
-            ip_destino           = pkt_info.get('dst_ip',  'desconhecido'),
+            ip_origem            = src_ip,
+            ip_destino           = dst_ip,
             protocolo            = pkt_info.get('protocolo', 'OUTRO'),
-            porta_de_comunicacao = pkt_info.get('dst_port', 0),
+            porta_de_comunicacao = int(pkt_info.get('dst_port', 0) or 0),
         )
         session.add(alerta_db)
         session.commit()
+        print(f"[PERSIST] ✓ Alerta salvo (ID: {alerta_db.id})")
 
+        # ✅ Enviar notificações
         try:
             await notificar_alerta(evento, session)
+            print(f"[PERSIST] ✓ Notificações processadas")
         except Exception as notify_err:
-            print(f"⚠ Erro ao enviar notificações: {notify_err}")
+            print(f"[PERSIST] ⚠ Erro ao enviar notificações: {notify_err}")
 
     except Exception as e:
+        print(f"[PERSIST] ❌ Erro ao guardar: {e}")
         if session is not None:
             try:
                 session.rollback()
+                print(f"[PERSIST] ✓ Rollback executado")
             except Exception:
                 pass
-        print(f"❌ Erro ao guardar no banco: {e}")
     finally:
         if session is not None:
-            session.close()
+            try:
+                session.close()
+            except Exception:
+                pass
 
 # ── Callback do NFStream 
 async def _callback_fluxo(alerta: dict):
@@ -160,11 +187,16 @@ async def _callback_fluxo(alerta: dict):
             'confianca': round(alerta.get('confidence', 0) * 100, 1),
         }
 
+        # ── VERIFICAÇÃO RÁPIDA: Se IP já está bloqueado, descartar alerta
+        src_ip = str(pkt_info.get('src_ip', '')).strip()
+        blocked_ips = _ips_instance.get_blocked_ips()
+        if src_ip in blocked_ips:
+            return  # Descarta alerta de IP já bloqueado
+
         with _stats_lock:
             _ultimos_pacotes.appendleft(pkt_info)
             src_attack_count = 0
             if pkt_info['tipo'] == 'ataque':
-                src_ip = str(pkt_info.get('src_ip', '')).strip()
                 if src_ip:
                     _contagem_ips[src_ip] += 1
                     src_attack_count = _contagem_ips[src_ip]
@@ -175,7 +207,7 @@ async def _callback_fluxo(alerta: dict):
         # Persistencia/notificacao em segundo plano para nao bloquear o stream dos logs.
         if pkt_info['tipo'] == 'ataque':
             block_info = _ips_instance.register_malicious_flow(
-                src_ip=str(pkt_info.get('src_ip', '')).strip(),
+                src_ip=src_ip,
                 reason=f"Auto-bloqueio IPS após {_ips_instance.threshold} fluxos maliciosos",
                 session_factory=_session_factory,
                 observed_count=src_attack_count,
@@ -190,7 +222,7 @@ async def _callback_fluxo(alerta: dict):
             asyncio.create_task(_persistir_alerta_async(pkt_info))
 
     except Exception as e:
-        print(f"[sniffer_routes] Erro no callback de fluxo: {e}")
+        print(f"[callback_fluxo] ❌ Erro no callback de fluxo: {e}")
 
 
 def _proto_name(proto_int: int) -> str:
@@ -375,7 +407,13 @@ async def sniffer_ws(websocket: WebSocket, token: str = ""):
         return
 
     session = next(_session_factory())
-    usuario = verificar_token_ws(token, session)
+    try:
+        usuario = verificar_token_ws(token, session)
+    except HTTPException:
+        await websocket.close(code=1008)
+        session.close()
+        return
+
     if not usuario:
         await websocket.close(code=1008)
         session.close()
@@ -478,6 +516,13 @@ async def receber_fluxo(request: Request):
                             )
                             if block_info.get("blocked") or block_info.get("already_blocked"):
                                 pkt_info["ips_bloqueado"] = True
+
+                            # ✅ FIXO: Persistir alerta de forma assíncrona
+                            try:
+                                loop = _get_loop()
+                                asyncio.run_coroutine_threadsafe(_persistir_alerta_async(pkt_info), loop)
+                            except Exception as persist_err:
+                                print(f"⚠ Erro ao agendar persistência: {persist_err}")
 
         return JSONResponse({"status": "ok"})
     except Exception as e:
