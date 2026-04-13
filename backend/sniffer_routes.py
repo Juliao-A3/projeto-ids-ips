@@ -162,10 +162,12 @@ async def _callback_fluxo(alerta: dict):
 
         with _stats_lock:
             _ultimos_pacotes.appendleft(pkt_info)
+            src_attack_count = 0
             if pkt_info['tipo'] == 'ataque':
                 src_ip = str(pkt_info.get('src_ip', '')).strip()
                 if src_ip:
                     _contagem_ips[src_ip] += 1
+                    src_attack_count = _contagem_ips[src_ip]
 
         # Enviar para clientes WebSocket imediatamente para reduzir latencia visual.
         await _broadcast_pacote(pkt_info)
@@ -176,6 +178,7 @@ async def _callback_fluxo(alerta: dict):
                 src_ip=str(pkt_info.get('src_ip', '')).strip(),
                 reason=f"Auto-bloqueio IPS após {_ips_instance.threshold} fluxos maliciosos",
                 session_factory=_session_factory,
+                observed_count=src_attack_count,
             )
             if block_info.get('blocked'):
                 pkt_info['ips_bloqueado'] = True
@@ -276,6 +279,7 @@ async def start_sniffer(
 
     _ips_instance.iniciar()
     _ips_instance.reset()
+    _ips_instance.carregar_bloqueados_db(_session_factory)
 
     with _stats_lock:
         _contagem_ips.clear()
@@ -465,10 +469,12 @@ async def receber_fluxo(request: Request):
                         src_ip = str(pkt_info.get("src_ip", "")).strip()
                         if src_ip:
                             _contagem_ips[src_ip] += 1
+                            src_attack_count = _contagem_ips[src_ip]
                             block_info = _ips_instance.register_malicious_flow(
                                 src_ip=src_ip,
                                 reason=f"Auto-bloqueio IPS após {_ips_instance.threshold} fluxos maliciosos",
                                 session_factory=_session_factory,
+                                observed_count=src_attack_count,
                             )
                             if block_info.get("blocked") or block_info.get("already_blocked"):
                                 pkt_info["ips_bloqueado"] = True

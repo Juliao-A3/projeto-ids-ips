@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Callable, Optional
 
 from models import IpsBloqueados
+from sqlalchemy.orm import Session
 
 
 class IPSService:
@@ -28,6 +29,23 @@ class IPSService:
         with self._lock:
             self._malicious_counts.clear()
 
+    def carregar_bloqueados_db(self, session_factory: Optional[Callable]) -> None:
+        """Sincroniza estado em memória com IPs já bloqueados no banco."""
+        if not session_factory:
+            return
+
+        session: Optional[Session] = None
+        try:
+            session = next(session_factory())
+            rows = session.query(IpsBloqueados).all()
+            with self._lock:
+                self._blocked_ips = {str(r.ip_bloqueado).strip() for r in rows if r.ip_bloqueado}
+        except Exception as exc:
+            print(f"[IPS] Erro ao sincronizar IPs bloqueados do banco: {exc}")
+        finally:
+            if session is not None:
+                session.close()
+
     def get_blocked_ips(self) -> list[str]:
         with self._lock:
             return sorted(self._blocked_ips)
@@ -48,6 +66,7 @@ class IPSService:
         src_ip: str,
         reason: str,
         session_factory: Optional[Callable] = None,
+        observed_count: Optional[int] = None,
     ) -> dict:
         """Regista fluxo malicioso e bloqueia IP quando atingir threshold."""
         ip = str(src_ip or "").strip()
@@ -55,7 +74,16 @@ class IPSService:
             return {"blocked": False}
 
         with self._lock:
-            current = self._malicious_counts.get(ip, 0) + 1
+            if observed_count is not None:
+                try:
+                    current = max(0, int(observed_count))
+                except (TypeError, ValueError):
+                    current = self._malicious_counts.get(ip, 0) + 1
+            else:
+                current = self._malicious_counts.get(ip, 0) + 1
+
+            # Nunca reduzir contador (evita regressão por concorrência).
+            current = max(current, self._malicious_counts.get(ip, 0))
             self._malicious_counts[ip] = current
 
             if ip in self._blocked_ips:
@@ -85,6 +113,20 @@ class IPSService:
                 "blocked_system": blocked_system,
                 "blocked_db": blocked_db,
             }
+
+    def unblock_ip(self, ip: str) -> dict:
+        """Remove bloqueio do sistema e da memória para um IP."""
+        ip = str(ip or "").strip()
+        if not ip or not self._is_valid_ip(ip):
+            return {"ok": False, "detail": "IP inválido"}
+
+        unblocked_system = self._unblock_ip_system(ip)
+
+        with self._lock:
+            self._blocked_ips.discard(ip)
+            self._malicious_counts.pop(ip, None)
+
+        return {"ok": True, "ip": ip, "unblocked_system": unblocked_system}
 
     def _persist_block(self, ip: str, reason: str, session_factory: Optional[Callable]) -> bool:
         if not session_factory:
@@ -145,4 +187,55 @@ class IPSService:
             return False
         except Exception as exc:
             print(f"[IPS] Falha ao aplicar iptables para {ip}: {exc}")
+            return False
+
+    def _unblock_ip_system(self, ip: str) -> bool:
+        """Remove regras iptables de INPUT/OUTPUT para restabelecer tráfego."""
+        if not os.name == "posix":
+            print(f"[IPS] Desbloqueio de sistema indisponível neste SO para {ip}.")
+            return False
+
+        deleted_any = False
+        try:
+            while True:
+                chk = subprocess.run(
+                    ["iptables", "-C", "INPUT", "-s", ip, "-j", "DROP"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                if chk.returncode != 0:
+                    break
+                subprocess.run(
+                    ["iptables", "-D", "INPUT", "-s", ip, "-j", "DROP"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                deleted_any = True
+
+            while True:
+                chk = subprocess.run(
+                    ["iptables", "-C", "OUTPUT", "-d", ip, "-j", "DROP"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                if chk.returncode != 0:
+                    break
+                subprocess.run(
+                    ["iptables", "-D", "OUTPUT", "-d", ip, "-j", "DROP"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                deleted_any = True
+
+            print(f"[IPS] IP desbloqueado no sistema: {ip} em {datetime.now().isoformat()}")
+            return deleted_any
+        except FileNotFoundError:
+            print("[IPS] iptables não encontrado; desbloqueio aplicado apenas em memória/banco.")
+            return False
+        except Exception as exc:
+            print(f"[IPS] Falha ao remover regras iptables para {ip}: {exc}")
             return False

@@ -74,9 +74,27 @@ async def unblock_ip(
     ip = session.query(IpsBloqueados).filter(IpsBloqueados.id == ip_id).first()
     if not ip:
         raise HTTPException(status_code=404, detail='IP não encontrado')
+
+    ip_addr = str(ip.ip_bloqueado).strip()
+    ips_result = {"ok": False, "detail": "IPS indisponível"}
+    try:
+        import backend.sniffer_routes as sniffer_routes
+        ips_result = sniffer_routes._ips_instance.unblock_ip(ip_addr)
+    except Exception as exc:
+        ips_result = {"ok": False, "detail": str(exc)}
+
     session.delete(ip)
     session.commit()
-    return {"message": f"IP {ip.ip_bloqueado} desbloqueado com sucesso"}
+
+    message = f"IP {ip_addr} desbloqueado com sucesso"
+    if not ips_result.get("unblocked_system", False):
+        message += " (removido da lista, mas sem confirmação de remoção no firewall do SO)"
+
+    return {
+        "message": message,
+        "ip": ip_addr,
+        "firewall_unblocked": ips_result.get("unblocked_system", False),
+    }
 
 
 class NetworkConfigSchema(BaseModel):
