@@ -56,7 +56,6 @@ export function LogCard() {
           <span>Destino</span>
           <span>Protocolo</span>
           <span>Tipo</span>
-          <span>Ações</span>
         </ListaMenu>
 
         <Divider />

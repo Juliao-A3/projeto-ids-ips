@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
     CardContainer,
     CardContent,
@@ -26,31 +26,55 @@ export function Card() {
     const [stats, setStats] = useState<StatsData | null>(null);
     const [snifferStatus, setSnifferStatus] = useState<SnifferStatusData | null>(null);
     const [loading, setLoading] = useState(true);
+    const requestInFlightRef = useRef(false);
+    const pendingRefetchRef = useRef(false);
+    const lastRealtimeSyncRef = useRef(0);
+
+    const fetchStats = useCallback(async () => {
+        if (requestInFlightRef.current) {
+            pendingRefetchRef.current = true;
+            return;
+        }
+
+        requestInFlightRef.current = true;
+        try {
+            const [statsResponse, snifferResponse] = await Promise.all([
+                api.get('/service/stats'),
+                api.get('/sniffer/status'),
+            ]);
+            setStats(statsResponse.data);
+            setSnifferStatus({
+                running: !!snifferResponse.data?.running,
+                anomalias: Number(snifferResponse.data?.anomalias || 0),
+                taxa_anomalia: Number(snifferResponse.data?.taxa_anomalia || 0),
+            });
+        } catch (error) {
+            console.error('Erro ao buscar stats:', error);
+        } finally {
+            requestInFlightRef.current = false;
+            setLoading(false);
+
+            // Se eventos chegaram durante a requisição atual, sincroniza uma vez ao final.
+            if (pendingRefetchRef.current) {
+                pendingRefetchRef.current = false;
+                void fetchStats();
+            }
+        }
+    }, []);
 
     useEffect(() => {
-        const fetchStats = async () => {
-            try {
-                const [statsResponse, snifferResponse] = await Promise.all([
-                    api.get('/service/stats'),
-                    api.get('/sniffer/status'),
-                ]);
-                setStats(statsResponse.data);
-                setSnifferStatus({
-                    running: !!snifferResponse.data?.running,
-                    anomalias: Number(snifferResponse.data?.anomalias || 0),
-                    taxa_anomalia: Number(snifferResponse.data?.taxa_anomalia || 0),
-                });
-            } catch (error) {
-                console.error('Erro ao buscar stats:', error);
-            } finally {
-                setLoading(false);
-            }
-        };
+        void fetchStats();
+        const interval = setInterval(() => {
+            void fetchStats();
+        }, 30000);
 
-        fetchStats();
-        const interval = setInterval(fetchStats, 30000);
         const onSnifferUpdate = () => {
-            fetchStats();
+            const now = Date.now();
+            if (now - lastRealtimeSyncRef.current < 5000) {
+                return;
+            }
+            lastRealtimeSyncRef.current = now;
+            void fetchStats();
         };
 
         window.addEventListener('sniffer:update', onSnifferUpdate);
@@ -58,7 +82,7 @@ export function Card() {
             clearInterval(interval);
             window.removeEventListener('sniffer:update', onSnifferUpdate);
         };
-    }, []);
+    }, [fetchStats]);
 
     const attackDetected = (snifferStatus?.anomalias || 0) > 0;
     const captureRunning = !!snifferStatus?.running;
@@ -101,7 +125,7 @@ export function Card() {
             <CardContent>
                 <CardTitle>THROUGHPUT</CardTitle>
                 <CardInfo>
-                    <CardNum>{stats?.throughput_mbps.toFixed(2) || '0.00'}</CardNum>
+                    <CardNum>{Number(stats?.throughput_mbps ?? 0).toFixed(2)}</CardNum>
                     <CardSubtitle>Mbps</CardSubtitle>
                 </CardInfo>
             </CardContent>

@@ -33,6 +33,7 @@ export function useSniffer() {
   const [pacotes, setPacotes]   = useState<any[]>([]);
   const wsRef                   = useRef<WebSocket | null>(null);
   const wsRetryTimeoutRef       = useRef<number | null>(null);
+  const statusRequestInFlightRef = useRef(false);
   const runningRef              = useRef(false);
   const lastAnomaliasRef        = useRef(0);
 
@@ -95,6 +96,11 @@ export function useSniffer() {
 
   // Busca status via HTTP
   const fetchStatus = useCallback(async () => {
+    if (statusRequestInFlightRef.current) {
+      return;
+    }
+
+    statusRequestInFlightRef.current = true;
     try {
       const res = await api.get('/sniffer/status');
       setStatus(res.data);
@@ -140,13 +146,17 @@ export function useSniffer() {
       lastAnomaliasRef.current = anomaliasAtuais;
     } catch {
       setError('Erro ao obter status do sniffer');
+    } finally {
+      statusRequestInFlightRef.current = false;
     }
   }, [mergePacotes, normalizarPacote]);
 
   // Polling de apoio quando não há eventos WS
   useEffect(() => {
-    fetchStatus();
-    const interval = setInterval(fetchStatus, 500);
+    void fetchStatus();
+    const interval = setInterval(() => {
+      void fetchStatus();
+    }, 5000);
     return () => clearInterval(interval);
   }, [fetchStatus]);
 

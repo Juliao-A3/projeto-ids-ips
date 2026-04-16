@@ -25,21 +25,21 @@ const TrafficIntegrityStatus = ({ anomalyRate = 0, running = false, hasAttack = 
         <Container>
         <Header>
           <Title>Integridade do Tráfego</Title>
-          <StatusBadge percentage={integrityPercentage}>
-            <StatusIcon percentage={integrityPercentage}>
+          <StatusBadge $percentage={integrityPercentage}>
+            <StatusIcon $percentage={integrityPercentage}>
               <StatusIconComponent size={14} strokeWidth={3} />
             </StatusIcon>
-            <StatusText percentage={integrityPercentage}>{status.text}</StatusText>
+            <StatusText $percentage={integrityPercentage}>{status.text}</StatusText>
           </StatusBadge>
         </Header>
         
         <ProgressSection>
           <ProgressHeader>
             <ProgressLabel>Integridade Atual</ProgressLabel>
-            <ProgressValue percentage={integrityPercentage}>{integrityPercentage.toFixed(1)}%</ProgressValue>
+            <ProgressValue $percentage={integrityPercentage}>{integrityPercentage.toFixed(1)}%</ProgressValue>
           </ProgressHeader>
           <ProgressBarContainer>
-            <ProgressBarFill percentage={integrityPercentage} />
+            <ProgressBarFill $percentage={integrityPercentage} />
           </ProgressBarContainer>
         </ProgressSection>
       </Container>

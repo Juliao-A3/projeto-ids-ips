@@ -1,6 +1,6 @@
 import { Settings, FileText } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../../services/api';
 
 import {
@@ -28,6 +28,8 @@ import {
 export function Header() {
   const navigate = useNavigate();
   const [metrics, setMetrics] = useState<{cpu_load:number;memory:number;network_gbps:number} | null>(null);
+  const requestInFlightRef = useRef(false);
+  const lastTimeoutLogAtRef = useRef(0);
 
   const systemStatus = !metrics
     ? { label: 'A VERIFICAR...', tone: 'muted' as const }
@@ -48,15 +50,31 @@ export function Header() {
 
   useEffect(() => {
     const fetchMetrics = async () => {
+      if (requestInFlightRef.current) {
+        return;
+      }
+
+      requestInFlightRef.current = true;
       try {
         const resp = await api.get('/service/system/metrics');
-        console.log('Metrics recebidas:', resp.data);
         setMetrics(resp.data);
-      } catch (e) {
-        console.error('Erro ao buscar métricas', e);
+      } catch (e: any) {
+        const isTimeout = e?.code === 'ECONNABORTED' || String(e?.message || '').includes('timeout');
+        if (!isTimeout) {
+          console.error('Erro ao buscar métricas', e);
+        } else {
+          const now = Date.now();
+          if (now - lastTimeoutLogAtRef.current > 60000) {
+            console.warn('Timeout ao buscar métricas. Tentando novamente no próximo ciclo.');
+            lastTimeoutLogAtRef.current = now;
+          }
+        }
+      } finally {
+        requestInFlightRef.current = false;
       }
     };
-    fetchMetrics();
+
+    void fetchMetrics();
     const iv = setInterval(fetchMetrics, 5000);
     return () => clearInterval(iv);
   }, []);

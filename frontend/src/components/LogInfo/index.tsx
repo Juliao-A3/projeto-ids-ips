@@ -3,7 +3,6 @@ import {
     LogRow,
     LogContent,
     Severity,
-    Actions,
     LogContainer,
     Divider
 } from './styles'
@@ -71,9 +70,6 @@ export function LogInfo({ data }: LogInfoProps) {
                         <Severity style={{ color: sevColor, borderColor: `${sevColor}44`, background: `${sevColor}12` }}>
                             {data.bloqueado ? '🔒 BLOQUEADO' : tipoExibicao}
                         </Severity>
-                        <Actions>
-                            <button>DETALHES</button>
-                        </Actions>
                     </LogRow>
                 </LogContent>
             </LogMain>
