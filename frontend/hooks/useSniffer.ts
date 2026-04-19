@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import axios from 'axios';
 import { api } from '../src/services/api';
 
 export interface SnifferStatus {
@@ -33,6 +34,7 @@ export function useSniffer() {
   const [pacotes, setPacotes]   = useState<any[]>([]);
   const wsRef                   = useRef<WebSocket | null>(null);
   const wsRetryTimeoutRef       = useRef<number | null>(null);
+  const wsRefreshAttemptedRef   = useRef(false);
   const statusRequestInFlightRef = useRef(false);
   const runningRef              = useRef(false);
   const lastAnomaliasRef        = useRef(0);
@@ -160,13 +162,73 @@ export function useSniffer() {
     return () => clearInterval(interval);
   }, [fetchStatus]);
 
+  const refreshAccessToken = useCallback(async (): Promise<string | null> => {
+    const refreshToken = localStorage.getItem('refresh_token');
+    if (!refreshToken) {
+      return null;
+    }
+
+    const apiBase = String(api.defaults.baseURL || '').trim();
+    const apiUrl = apiBase ? new URL(apiBase, window.location.origin) : new URL(window.location.origin);
+
+    try {
+      const response = await axios.post(`${apiUrl.origin}/auth/refresh`, {
+        refresh_token: refreshToken,
+      });
+      const newToken = String(response?.data?.access_token || '').trim();
+      if (!newToken) {
+        return null;
+      }
+
+      localStorage.setItem('access_token', newToken);
+      return newToken;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const getTokenExpiryMs = useCallback((token: string): number | null => {
+    try {
+      const payloadB64 = token.split('.')[1];
+      if (!payloadB64) {
+        return null;
+      }
+
+      const normalized = payloadB64.replace(/-/g, '+').replace(/_/g, '/');
+      const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
+      const payload = JSON.parse(window.atob(padded));
+      const expSec = Number(payload?.exp || 0);
+      if (!Number.isFinite(expSec) || expSec <= 0) {
+        return null;
+      }
+
+      return expSec * 1000;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const ensureValidAccessToken = useCallback(async (): Promise<string | null> => {
+    const token = localStorage.getItem('access_token');
+    if (!token) {
+      return await refreshAccessToken();
+    }
+
+    const expiryMs = getTokenExpiryMs(token);
+    if (expiryMs && expiryMs - Date.now() < 60_000) {
+      return await refreshAccessToken();
+    }
+
+    return token;
+  }, [getTokenExpiryMs, refreshAccessToken]);
+
   // WebSocket — pacotes em tempo real
-  const conectarWS = useCallback(() => {
+  const conectarWS = useCallback(async () => {
     if (wsRef.current && (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING)) {
       return;
     }
 
-    const token = localStorage.getItem('access_token');
+    const token = await ensureValidAccessToken();
     if (!token) {
       setError('Sem token para ligação WebSocket');
       return;
@@ -179,6 +241,7 @@ export function useSniffer() {
     const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
+      wsRefreshAttemptedRef.current = false;
       setError('');
     };
 
@@ -217,6 +280,19 @@ export function useSniffer() {
 
       // 1008 normalmente indica token inválido/autorização recusada.
       if (event.code === 1008) {
+        if (!wsRefreshAttemptedRef.current) {
+          wsRefreshAttemptedRef.current = true;
+          void (async () => {
+            const refreshed = await refreshAccessToken();
+            if (refreshed && runningRef.current) {
+              await conectarWS();
+              return;
+            }
+            setError('WebSocket recusado (token inválido ou expirado)');
+          })();
+          return;
+        }
+
         setError('WebSocket recusado (token inválido ou expirado)');
         return;
       }
@@ -227,13 +303,13 @@ export function useSniffer() {
           window.clearTimeout(wsRetryTimeoutRef.current);
         }
         wsRetryTimeoutRef.current = window.setTimeout(() => {
-          conectarWS();
+          void conectarWS();
         }, 1000);
       }
     };
 
     wsRef.current = ws;
-  }, [mergePacotes, normalizarPacote]);
+  }, [ensureValidAccessToken, mergePacotes, normalizarPacote, refreshAccessToken]);
 
   // Cleanup global do WebSocket
   useEffect(() => {
@@ -253,7 +329,7 @@ export function useSniffer() {
       wsRef.current = null;
     }
     if (status.running) {
-      conectarWS();
+      void conectarWS();
     }
   }, [status.running, conectarWS]);
 
@@ -263,14 +339,14 @@ export function useSniffer() {
       setLoading(true);
       setError('');
       // Abre WS já no arranque para reduzir latência dos primeiros logs.
-      conectarWS();
+      void conectarWS();
       await api.post('/sniffer/start', {
         interface: interface_ || null,
         filtro:    filtro    || null,
         bloquear,
       });
       await fetchStatus();
-      conectarWS();
+      void conectarWS();
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Erro ao iniciar sniffer');
     } finally {
@@ -304,7 +380,7 @@ export function useSniffer() {
         bloquear:  true,
       });
       await fetchStatus();
-      conectarWS();
+      void conectarWS();
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Erro ao reiniciar sniffer');
     } finally {

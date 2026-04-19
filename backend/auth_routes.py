@@ -39,10 +39,6 @@ def _enviar_codigo_email(email: str, codigo: str):  # ← sem session
     smtp_user = os.getenv("SMTP_USER", "")
     smtp_pass = os.getenv("SMTP_PASS", "")
 
-    print(f"[DEBUG] smtp_host: '{smtp_host}'")
-    print(f"[DEBUG] smtp_user: '{smtp_user}'")
-    print(f"[DEBUG] smtp_pass: '{smtp_pass[:4]}...' (len={len(smtp_pass)})")
-
     if not smtp_user or not smtp_pass:
         print(f"[AEGIS] ⚠ SMTP_USER/SMTP_PASS não configurados no .env")
         print(f"[AEGIS] ⚠ Código de recuperação para {email}: {codigo}")

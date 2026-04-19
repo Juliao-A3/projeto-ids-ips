@@ -1,4 +1,4 @@
-import { NetworkManagement } from "../../components/NetworkManagement";
+import NetworkManagement from "../../components/NetworkManagement";
 import { SystemContainer, MainContent } from "./styles";
 
 export function NetworkSettings() {

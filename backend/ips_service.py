@@ -2,6 +2,8 @@ import ipaddress
 import os
 import subprocess
 import threading
+import time
+from collections import defaultdict, deque
 from datetime import datetime
 from typing import Callable, Optional
 
@@ -14,9 +16,11 @@ class IPSService:
 
     def __init__(self, threshold: int = 5):
         self.threshold = max(1, int(threshold))
+        self.attack_window_seconds = max(1, int(os.getenv("IPS_ATTACK_WINDOW_SECONDS", "120")))
         self.running = False
         self._lock = threading.Lock()
         self._malicious_counts: dict[str, int] = {}
+        self._malicious_timestamps: dict[str, deque[float]] = defaultdict(deque)
         self._blocked_ips: set[str] = set()
 
     def iniciar(self) -> None:
@@ -28,6 +32,7 @@ class IPSService:
     def reset(self) -> None:
         with self._lock:
             self._malicious_counts.clear()
+            self._malicious_timestamps.clear()
 
     def carregar_bloqueados_db(self, session_factory: Optional[Callable]) -> None:
         """Sincroniza estado em memória com IPs já bloqueados no banco."""
@@ -68,22 +73,29 @@ class IPSService:
         session_factory: Optional[Callable] = None,
         observed_count: Optional[int] = None,
     ) -> dict:
-        """Regista fluxo malicioso e bloqueia IP quando atingir threshold."""
+        """Regista fluxo malicioso e bloqueia IP quando atingir threshold na janela ativa."""
         ip = str(src_ip or "").strip()
         if not self.running or not ip or not self._is_valid_ip(ip):
             return {"blocked": False}
 
         with self._lock:
+            now = time.time()
+            attempts = self._malicious_timestamps[ip]
+            attempts.append(now)
+            cutoff = now - self.attack_window_seconds
+            while attempts and attempts[0] < cutoff:
+                attempts.popleft()
+
+            current = len(attempts)
+
+            # Compatibilidade: manter contagem externa apenas se for maior e válida.
             if observed_count is not None:
                 try:
-                    current = max(0, int(observed_count))
+                    observed = max(0, int(observed_count))
+                    current = max(current, observed)
                 except (TypeError, ValueError):
-                    current = self._malicious_counts.get(ip, 0) + 1
-            else:
-                current = self._malicious_counts.get(ip, 0) + 1
+                    pass
 
-            # Nunca reduzir contador (evita regressão por concorrência).
-            current = max(current, self._malicious_counts.get(ip, 0))
             self._malicious_counts[ip] = current
 
             if ip in self._blocked_ips:
@@ -125,6 +137,7 @@ class IPSService:
         with self._lock:
             self._blocked_ips.discard(ip)
             self._malicious_counts.pop(ip, None)
+            self._malicious_timestamps.pop(ip, None)
 
         return {"ok": True, "ip": ip, "unblocked_system": unblocked_system}
 

@@ -6,18 +6,30 @@ import os
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 db_path  = os.path.abspath(os.path.join(BASE_DIR, "database", "banco.db"))
+DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{db_path}")
+_is_sqlite = DATABASE_URL.startswith("sqlite")
+
+engine_kwargs = {
+    "pool_pre_ping": True,
+}
+
+if _is_sqlite:
+    engine_kwargs["connect_args"] = {"check_same_thread": False}
+else:
+    engine_kwargs.update({
+        "pool_size": int(os.getenv("DB_POOL_SIZE", "20")),
+        "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "40")),
+        "pool_timeout": int(os.getenv("DB_POOL_TIMEOUT", "60")),
+    })
 
 engine = create_engine(
-    f"sqlite:///{db_path}",
-    connect_args={"check_same_thread": False},  # permite múltiplas threads (Scapy + FastAPI)
-    pool_size=20,        # aumenta o pool de conexões
-    max_overflow=40,     # permite mais conexões em pico
-    pool_timeout=60,     # espera mais antes de dar timeout
+    DATABASE_URL,
+    **engine_kwargs,
 )
 
 Base = declarative_base()
 
-# ── Enums ──────────────────────────────────────────────────────────────────────
+# ── Enums 
 
 class UserRole(str, PyEnum):
     ADMIN    = "admin"

@@ -20,6 +20,8 @@ type BlockedIP = {
 
 export type NetworkConfigSchema = {
   capture_interface: string;
+  capture_interfaces?: string[];
+  zone_map?: Record<string, string>;
   promiscuous_mode: boolean;
   bpf_filter: string;
   whitelist: string;
@@ -30,6 +32,8 @@ export function useNetwork() {
   const [blockedIps, setBlockedIps] = useState<BlockedIP[]>([]);
   const [config, setConfig]         = useState<NetworkConfigSchema>({
     capture_interface: "eth0",
+    capture_interfaces: ["eth0"],
+    zone_map: {},
     promiscuous_mode:  true,
     bpf_filter: "",
     whitelist: "192.168.1.0/24, 10.0.0.0/8, 127.0.0.1",
@@ -53,7 +57,18 @@ export function useNetwork() {
 
   const fetchConfig = useCallback(() => {
     api.get('/network/config')
-      .then(r => { if (r.data) setConfig(r.data); })
+      .then(r => {
+        if (r.data) {
+          setConfig({
+            ...r.data,
+            capture_interface: r.data.capture_interface || (Array.isArray(r.data.capture_interfaces) ? r.data.capture_interfaces.join(',') : 'eth0'),
+            capture_interfaces: Array.isArray(r.data.capture_interfaces) && r.data.capture_interfaces.length > 0
+              ? r.data.capture_interfaces
+              : String(r.data.capture_interface || 'eth0').split(',').map((entry: string) => entry.trim()).filter(Boolean),
+            zone_map: r.data.zone_map || {},
+          });
+        }
+      })
       .catch(() => {});
   }, []);
 
@@ -67,7 +82,16 @@ export function useNetwork() {
       .then(([ifRes, ipRes, cfgRes]) => {
         setInterfaces(ifRes.data);
         setBlockedIps(ipRes.data);
-        if (cfgRes.data) setConfig(cfgRes.data);
+        if (cfgRes.data) {
+          setConfig({
+            ...cfgRes.data,
+            capture_interface: cfgRes.data.capture_interface || (Array.isArray(cfgRes.data.capture_interfaces) ? cfgRes.data.capture_interfaces.join(',') : 'eth0'),
+            capture_interfaces: Array.isArray(cfgRes.data.capture_interfaces) && cfgRes.data.capture_interfaces.length > 0
+              ? cfgRes.data.capture_interfaces
+              : String(cfgRes.data.capture_interface || 'eth0').split(',').map((entry: string) => entry.trim()).filter(Boolean),
+            zone_map: cfgRes.data.zone_map || {},
+          });
+        }
       })
       .catch(() => setError('Erro ao carregar rede'))
       .finally(() => setLoading(false));
@@ -120,6 +144,8 @@ export function useNetwork() {
   const restoreDefaults = async () => {
     const defaults: NetworkConfigSchema = {
       capture_interface: "eth0",
+      capture_interfaces: ["eth0"],
+      zone_map: {},
       promiscuous_mode:  true,
       bpf_filter:        "",
       whitelist:         "192.168.1.0/24, 10.0.0.0/8, 127.0.0.1",

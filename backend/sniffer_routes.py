@@ -24,7 +24,7 @@ from whitelist import get_whitelist
 from ips_service import IPSService
 
 # NFStream sniffer (nova API) 
-from scapy_module.sniffer_realtime import iniciar as _sniffer_iniciar
+from scapy_module.sniffer_realtime import iniciar_multiplas as _sniffer_iniciar_multiplas
 from scapy_module.sniffer_realtime import parar   as _sniffer_parar
 from scapy_module.sniffer_realtime import estado  as _sniffer_estado
 
@@ -56,6 +56,7 @@ def _get_loop():
 # ── Schemas 
 class SnifferStartSchema(BaseModel):
     interface: Optional[str] = None
+    interfaces: Optional[list[str]] = None
     filtro:    Optional[str] = None
     bloquear:  bool = True
 
@@ -301,12 +302,25 @@ async def start_sniffer(
                     _whitelist_manager.add_exact_ip(ip)
 
     loop = _get_loop()
-    interface_capture = interface_final or 'eth0'
+    interfaces_capture = []
+    if dados.interfaces:
+        interfaces_capture.extend([str(item).strip() for item in dados.interfaces if str(item).strip()])
+    if interface_final:
+        interfaces_capture.extend([part.strip() for part in str(interface_final).split(',') if part.strip()])
+    if not interfaces_capture:
+        interfaces_capture = ['eth0']
 
-    _sniffer_iniciar(
-        interface = interface_capture,
-        callback  = _callback_fluxo,
-        loop      = loop,
+    deduped_interfaces = []
+    seen_interfaces = set()
+    for iface in interfaces_capture:
+        if iface not in seen_interfaces:
+            seen_interfaces.add(iface)
+            deduped_interfaces.append(iface)
+
+    _sniffer_iniciar_multiplas(
+        interfaces=deduped_interfaces,
+        callback=_callback_fluxo,
+        loop=loop,
     )
 
     _ips_instance.iniciar()
@@ -319,7 +333,8 @@ async def start_sniffer(
 
     return {
         "message":   "Sniffer iniciado",
-        "interface": interface_capture,
+        "interface": deduped_interfaces[0] if deduped_interfaces else "",
+        "interfaces": deduped_interfaces,
     }
 
 
@@ -493,6 +508,9 @@ async def receber_fluxo(request: Request):
                 "confianca": round(float(dados.get("confidence", 0)) * 100, 1),
             }
 
+            src_ip = str(pkt_info.get("src_ip", "")).strip()
+            src_attack_count = 0
+
             with _stats_lock:
                 exists = any(
                     p.get("id") == pkt_info.get("id")
@@ -504,25 +522,26 @@ async def receber_fluxo(request: Request):
                 if not exists:
                     _ultimos_pacotes.appendleft(pkt_info)
                     if pkt_info["tipo"] == "ataque":
-                        src_ip = str(pkt_info.get("src_ip", "")).strip()
                         if src_ip:
                             _contagem_ips[src_ip] += 1
                             src_attack_count = _contagem_ips[src_ip]
-                            block_info = _ips_instance.register_malicious_flow(
-                                src_ip=src_ip,
-                                reason=f"Auto-bloqueio IPS após {_ips_instance.threshold} fluxos maliciosos",
-                                session_factory=_session_factory,
-                                observed_count=src_attack_count,
-                            )
-                            if block_info.get("blocked") or block_info.get("already_blocked"):
-                                pkt_info["ips_bloqueado"] = True
 
-                            # ✅ FIXO: Persistir alerta de forma assíncrona
-                            try:
-                                loop = _get_loop()
-                                asyncio.run_coroutine_threadsafe(_persistir_alerta_async(pkt_info), loop)
-                            except Exception as persist_err:
-                                print(f"⚠ Erro ao agendar persistência: {persist_err}")
+            if not exists and pkt_info["tipo"] == "ataque" and src_ip:
+                block_info = _ips_instance.register_malicious_flow(
+                    src_ip=src_ip,
+                    reason=f"Auto-bloqueio IPS após {_ips_instance.threshold} fluxos maliciosos",
+                    session_factory=_session_factory,
+                    observed_count=src_attack_count,
+                )
+                if block_info.get("blocked") or block_info.get("already_blocked"):
+                    pkt_info["ips_bloqueado"] = True
+
+                # ✅ FIXO: Persistir alerta de forma assíncrona
+                try:
+                    loop = _get_loop()
+                    asyncio.run_coroutine_threadsafe(_persistir_alerta_async(pkt_info), loop)
+                except Exception as persist_err:
+                    print(f"⚠ Erro ao agendar persistência: {persist_err}")
 
         return JSONResponse({"status": "ok"})
     except Exception as e:

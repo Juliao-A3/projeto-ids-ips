@@ -38,16 +38,26 @@ export function Card() {
 
         requestInFlightRef.current = true;
         try {
-            const [statsResponse, snifferResponse] = await Promise.all([
+            const [statsResponse, snifferResponse] = await Promise.allSettled([
                 api.get('/service/stats'),
                 api.get('/sniffer/status'),
             ]);
-            setStats(statsResponse.data);
-            setSnifferStatus({
-                running: !!snifferResponse.data?.running,
-                anomalias: Number(snifferResponse.data?.anomalias || 0),
-                taxa_anomalia: Number(snifferResponse.data?.taxa_anomalia || 0),
-            });
+
+            if (statsResponse.status === 'fulfilled') {
+                setStats(statsResponse.value.data);
+            }
+
+            if (snifferResponse.status === 'fulfilled') {
+                setSnifferStatus({
+                    running: !!snifferResponse.value.data?.running,
+                    anomalias: Number(snifferResponse.value.data?.anomalias || 0),
+                    taxa_anomalia: Number(snifferResponse.value.data?.taxa_anomalia || 0),
+                });
+            }
+
+            if (statsResponse.status === 'rejected' && snifferResponse.status === 'rejected') {
+                console.error('Erro ao buscar stats:', statsResponse.reason || snifferResponse.reason);
+            }
         } catch (error) {
             console.error('Erro ao buscar stats:', error);
         } finally {

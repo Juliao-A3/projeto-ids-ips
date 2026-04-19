@@ -41,12 +41,6 @@ def verificar_token_ws(token: str, session):
 
 def require_role(allowed_roles: List[str]):
     def check_role(usuario: Usuario = Depends(verificar_token)):
-        print(f"=== require_role ===")
-        print(f"role do usuario: '{usuario.role.value}'")
-        print(f"tipo: {type(usuario.role.value)}")
-        print(f"allowed_roles: {allowed_roles}")
-        print(f"está incluído: {usuario.role.value in allowed_roles}")
-        
         if usuario.role.value not in allowed_roles:
             raise HTTPException(
                 status_code=403, 

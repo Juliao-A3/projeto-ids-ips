@@ -15,7 +15,7 @@ import {
   WhitelistChipButton, WhitelistHint, WhitelistError, Label,
 } from './styles';
 
-export function NetworkManagement() {
+function NetworkManagement() {
   const { user }    = useAuth();
   const {
     interfaces, blockedIps, config,
@@ -23,12 +23,15 @@ export function NetworkManagement() {
     unblockIp, saveConfig, restoreDefaults
   } = useNetwork();
 
-  const [captureInterface, setCaptureInterface] = useState('eth0');
+  const [wanInterface, setWanInterface] = useState('');
+  const [lanInterface, setLanInterface] = useState('');
   const [promiscuousMode, setPromiscuousMode]   = useState(true);
   const [bpfFilter, setBpfFilter]               = useState('');
   const [whitelistEntries, setWhitelistEntries]  = useState<string[]>([]);
   const [whitelistInput, setWhitelistInput]      = useState('');
   const [whitelistError, setWhitelistError]      = useState('');
+  const [captureError, setCaptureError]         = useState('');
+  const [captureDirty, setCaptureDirty]         = useState(false);
   const [whitelistDirty, setWhitelistDirty]      = useState(false);
 
   const parseWhitelist = (value: string) =>
@@ -53,13 +56,40 @@ export function NetworkManagement() {
 
   // sincroniza com dados do backend
   useEffect(() => {
-    if (config && !whitelistDirty) {
-      setCaptureInterface(config.capture_interface);
+    if (config && !whitelistDirty && !captureDirty) {
+      const zoneMap = config.zone_map || {};
+      const wanEntry = Object.entries(zoneMap).find(([, zone]) => zone === 'wan');
+      const lanEntry = Object.entries(zoneMap).find(([, zone]) => zone === 'lan');
+      const configuredInterfaces = Array.isArray(config.capture_interfaces) && config.capture_interfaces.length > 0
+        ? config.capture_interfaces
+        : String(config.capture_interface || '')
+            .split(',')
+            .map((entry: string) => entry.trim())
+            .filter(Boolean);
+
+      const fallbackWan = configuredInterfaces[0] || '';
+      const fallbackLan = configuredInterfaces[1] || '';
+
+      setWanInterface(wanEntry?.[0] || fallbackWan);
+      setLanInterface(lanEntry?.[0] || fallbackLan);
+
       setPromiscuousMode(config.promiscuous_mode);
       setBpfFilter(config.bpf_filter);
       setWhitelistEntries(parseWhitelist(config.whitelist));
     }
-  }, [config, whitelistDirty]);
+  }, [config, whitelistDirty, captureDirty]);
+
+  const handleWanChange = (value: string) => {
+    setWanInterface(value);
+    setCaptureDirty(true);
+    setCaptureError('');
+  };
+
+  const handleLanChange = (value: string) => {
+    setLanInterface(value);
+    setCaptureDirty(true);
+    setCaptureError('');
+  };
 
   const interfaceOptions = interfaces.map(i => ({
     value: i.name,
@@ -67,14 +97,35 @@ export function NetworkManagement() {
   }));
 
   const handleSave = async () => {
+    const normalizedInterfaces = Array.from(new Set([wanInterface, lanInterface].map(value => value.trim()).filter(Boolean)));
+
+    if (normalizedInterfaces.length === 0) {
+      setCaptureError('Selecione pelo menos uma interface WAN ou LAN para salvar.');
+      return;
+    }
+    setCaptureError('');
+
+    const zoneMap: Record<string, string> = {};
+    if (wanInterface && normalizedInterfaces.includes(wanInterface.trim())) {
+      zoneMap[wanInterface.trim()] = 'wan';
+    }
+    if (lanInterface && normalizedInterfaces.includes(lanInterface.trim())) {
+      zoneMap[lanInterface.trim()] = 'lan';
+    }
+
     const saved = await saveConfig({
-      capture_interface: captureInterface,
+      capture_interface: normalizedInterfaces.join(','),
+      capture_interfaces: normalizedInterfaces,
+      zone_map: zoneMap,
       promiscuous_mode:  promiscuousMode,
       bpf_filter:        bpfFilter,
       whitelist: whitelistEntries.join(', '),
     });
     if (saved) {
       setWhitelistDirty(false);
+      setCaptureDirty(false);
+      setWhitelistError('');
+      setCaptureError('');
     }
   };
 
@@ -204,16 +255,32 @@ export function NetworkManagement() {
               </BridgeSettings>
 
               <div style={{ marginTop: '16px' }}>
-                <Dropdown
-                  label="INTERFACE DE CAPTURA"
-                  value={captureInterface}
-                  onChange={setCaptureInterface}
-                  options={interfaceOptions.length > 0 ? interfaceOptions : [
-                    { value: 'eth0', label: 'eth0' },
-                    { value: 'eth1', label: 'eth1' },
-                    { value: 'wlan0', label: 'wlan0' },
-                  ]}
-                />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                  <Dropdown
+                    label="INTERFACE WAN"
+                    value={wanInterface}
+                    onChange={handleWanChange}
+                    options={[
+                      { value: '', label: 'Não definir' },
+                      ...(interfaceOptions.length > 0 ? interfaceOptions : [
+                        { value: 'eth0', label: 'eth0' },
+                        { value: 'eth1', label: 'eth1' },
+                      ]),
+                    ]}
+                  />
+                  <Dropdown
+                    label="INTERFACE LAN"
+                    value={lanInterface}
+                    onChange={handleLanChange}
+                    options={[
+                      { value: '', label: 'Não definir' },
+                      ...(interfaceOptions.length > 0 ? interfaceOptions : [
+                        { value: 'eth0', label: 'eth0' },
+                        { value: 'eth1', label: 'eth1' },
+                      ]),
+                    ]}
+                  />
+                </div>
               </div>
 
               <div style={{ marginTop: '16px' }}>
@@ -225,6 +292,9 @@ export function NetworkManagement() {
                   description="Filtro nativo do Scapy para limitar o tráfego capturado. Deixe vazio para capturar tudo."
                   rows={3}
                 />
+                {captureError && (
+                  <WhitelistError style={{ marginTop: '8px' }}>{captureError}</WhitelistError>
+                )}
               </div>
             </BridgeConfig>
           </SectionContent>
@@ -398,3 +468,5 @@ export function NetworkManagement() {
     </Container>
   );
 }
+
+export default NetworkManagement;

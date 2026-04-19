@@ -19,7 +19,9 @@ import subprocess
 import threading
 import asyncio
 import time
+from urllib.parse import quote
 from collections import defaultdict, deque
+import ipaddress
 
 from extractor import extrair_features
 from predictor import predict_flow
@@ -39,8 +41,9 @@ def _should_ignore_flow(src_ip: str, dst_ip: str) -> bool:
     return _whitelist_manager.is_ip_whitelisted(src_ip) or _whitelist_manager.is_ip_whitelisted(dst_ip)
 
 # Estado interno 
-_process:  subprocess.Popen | None  = None
-_thread:   threading.Thread | None  = None
+_processes: dict[str, subprocess.Popen] = {}
+_threads: dict[str, threading.Thread] = {}
+_proc_lock = threading.Lock()
 _stop_event = threading.Event()
 
 _callback  = None
@@ -48,7 +51,6 @@ _loop:     asyncio.AbstractEventLoop | None = None
 
 contador_fluxos   = 0
 ataques_detetados = 0
-_interface        = ""
 _start_time       = 0.0
 
 _SSH_BRUTE_WINDOW_S = 10.0
@@ -59,6 +61,10 @@ _ssh_attempts: dict[tuple[str, str, int], deque[float]] = defaultdict(deque)
 _ftp_attempts: dict[tuple[str, str, int], deque[float]] = defaultdict(deque)
 _ENABLE_HEURISTIC_ATTACK_OVERRIDE = os.getenv("ENABLE_HEURISTIC_ATTACK_OVERRIDE", "1") == "1"
 _web_attack_rules = WebAttackRulesEngine(_should_ignore_flow)
+_MIN_ATTACK_CONFIDENCE = float(os.getenv("ATTACK_MIN_CONFIDENCE", "0.82"))
+_MIN_INFILTRATION_CONFIDENCE = float(os.getenv("INFILTRATION_MIN_CONFIDENCE", "0.90"))
+_MIN_LOCAL_NOISE_CONFIDENCE = float(os.getenv("LOCAL_NOISE_MIN_CONFIDENCE", "0.93"))
+_LIKELY_NOISE_PORTS = {67, 68, 123, 137, 138, 1900, 5353, 5355}
 
 
 def _safe_float(value, default=0.0):
@@ -74,6 +80,65 @@ def _safe_int(value, default=0):
         return int(float(value))
     except (TypeError, ValueError):
         return default
+
+
+def _is_private_or_local_ip(ip_value: str) -> bool:
+    try:
+        ip_obj = ipaddress.ip_address(str(ip_value).strip())
+        return bool(
+            ip_obj.is_private
+            or ip_obj.is_loopback
+            or ip_obj.is_link_local
+            or ip_obj.is_multicast
+        )
+    except ValueError:
+        return False
+
+
+def _is_broadcast_ipv4(ip_value: str) -> bool:
+    ip_str = str(ip_value).strip()
+    return ip_str.count(".") == 3 and ip_str.endswith(".255")
+
+
+def _required_confidence_for_label(label_str: str) -> float:
+    label_norm = str(label_str or "").strip().lower()
+    if "infilteration" in label_norm or "infiltration" in label_norm:
+        return _MIN_INFILTRATION_CONFIDENCE
+    return _MIN_ATTACK_CONFIDENCE
+
+
+def _should_downgrade_attack(flow_dict: dict, resultado: dict) -> bool:
+    if not bool(resultado.get("is_attack", False)):
+        return False
+
+    confidence = _safe_float(resultado.get("confidence", 0.0))
+    label_str = str(resultado.get("label_str", ""))
+    required_conf = _required_confidence_for_label(label_str)
+    if confidence < required_conf:
+        return True
+
+    src_ip = str(flow_dict.get("src_ip", "")).strip()
+    dst_ip = str(flow_dict.get("dst_ip", "")).strip()
+    dst_port = _safe_int(flow_dict.get("dst_port", 0))
+    label_norm = label_str.lower().strip()
+
+    # Em tráfego local/infra (broadcast, multicast, discovery), exige confiança mais alta
+    # para evitar ruído recorrente marcado como "Infilteration".
+    local_or_noise_traffic = (
+        _is_broadcast_ipv4(dst_ip)
+        or _is_private_or_local_ip(src_ip)
+        or _is_private_or_local_ip(dst_ip)
+        or dst_port in _LIKELY_NOISE_PORTS
+    )
+
+    if local_or_noise_traffic and (
+        "infilteration" in label_norm
+        or "infiltration" in label_norm
+        or "bot" in label_norm
+    ):
+        return confidence < _MIN_LOCAL_NOISE_CONFIDENCE
+
+    return False
 
 
 def _is_ssh_bruteforce_candidate(flow_dict: dict) -> bool:
@@ -242,10 +307,15 @@ def _update_ftp_bruteforce_state(flow_dict: dict) -> int:
 
 # API pública 
 def estado() -> dict:
-    rodando = _process is not None and _process.poll() is None
+    with _proc_lock:
+        active = [iface for iface, proc in _processes.items() if proc and proc.poll() is None]
+        interfaces = sorted(active)
+
+    rodando = len(interfaces) > 0
     return {
         "rodando":            rodando,
-        "interface":          _interface,
+        "interface":          interfaces[0] if interfaces else "",
+        "interfaces":         interfaces,
         "fluxos_processados": contador_fluxos,
         "ataques_detetados":  ataques_detetados,
         "uptime_s":           round(time.time() - _start_time, 1) if rodando and _start_time else 0,
@@ -253,52 +323,78 @@ def estado() -> dict:
 
 
 def iniciar(interface: str, callback, loop: asyncio.AbstractEventLoop):
-    global _callback, _loop, _stop_event, _thread
-    global contador_fluxos, ataques_detetados, _interface, _start_time
+    iniciar_multiplas([interface], callback, loop)
 
-    _callback         = callback
-    _loop             = loop
-    _interface        = interface
-    _start_time       = time.time()
-    _stop_event.clear()
-    contador_fluxos   = 0
-    ataques_detetados = 0
-    _ssh_attempts.clear()
-    _ftp_attempts.clear()
-    _web_attack_rules.reset()
 
-    _thread = threading.Thread(
-        target=_lançar_cicflowmeter,
-        args=(interface,),
-        daemon=True,
-        name="sniffer-cicflowmeter",
-    )
-    _thread.start()
-    print(f"[Sniffer] Subprocess iniciado → interface: {interface} | endpoint: {FLOW_ENDPOINT}")
+def iniciar_multiplas(interfaces: list[str], callback, loop: asyncio.AbstractEventLoop):
+    global _callback, _loop, _stop_event
+    global contador_fluxos, ataques_detetados, _start_time
+
+    sanitized = [str(i or "").strip() for i in interfaces if str(i or "").strip()]
+    if not sanitized:
+        raise ValueError("Nenhuma interface válida informada")
+
+    _callback = callback
+    _loop = loop
+
+    est = estado()
+    if not est.get("rodando"):
+        _start_time = time.time()
+        _stop_event.clear()
+        contador_fluxos = 0
+        ataques_detetados = 0
+        _ssh_attempts.clear()
+        _ftp_attempts.clear()
+        _web_attack_rules.reset()
+
+    for interface in sanitized:
+        with _proc_lock:
+            existing = _processes.get(interface)
+            if existing and existing.poll() is None:
+                continue
+
+        thread = threading.Thread(
+            target=_lançar_cicflowmeter,
+            args=(interface,),
+            daemon=True,
+            name=f"sniffer-cicflowmeter-{interface}",
+        )
+        with _proc_lock:
+            _threads[interface] = thread
+        thread.start()
+        print(f"[Sniffer] Subprocess iniciado → interface: {interface} | endpoint: {FLOW_ENDPOINT}")
 
 
 def parar():
-    global _process, _thread
+    global _processes, _threads
 
     _stop_event.set()
 
-    if _process and _process.poll() is None:
-        _process.terminate()
-        try:
-            _process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            _process.kill()
-        _process = None
+    with _proc_lock:
+        processes = list(_processes.items())
+        threads = list(_threads.items())
 
-    if _thread and _thread.is_alive():
-        _thread.join(timeout=5)
-    _thread = None
+    for _, proc in processes:
+        if proc and proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+
+    for _, thread in threads:
+        if thread and thread.is_alive():
+            thread.join(timeout=5)
+
+    with _proc_lock:
+        _processes.clear()
+        _threads.clear()
 
     print("[Sniffer] Captura parada.")
 
 
 # Chamado pelo endpoint /sniffer/flow-input 
-async def processar_fluxo(flow_dict: dict):
+async def processar_fluxo(flow_dict: dict, sensor_interface: str | None = None):
     """
     Chamado pelo FastAPI quando o cicflowmeter faz POST de um fluxo.
     Classifica e envia para o callback (WebSocket).
@@ -336,6 +432,10 @@ async def processar_fluxo(flow_dict: dict):
                 resultado["label_str"] = web_label
                 resultado["confidence"] = max(float(resultado.get("confidence", 0.0)), web_confidence)
 
+        if _should_downgrade_attack(flow_dict, resultado):
+            resultado["is_attack"] = False
+            resultado["label_str"] = "Benign"
+
         contador_fluxos += 1
         if resultado["is_attack"]:
             ataques_detetados += 1
@@ -362,6 +462,7 @@ async def processar_fluxo(flow_dict: dict):
             "confidence": round(resultado["confidence"] * 100, 2),
             "is_attack":  resultado["is_attack"],
             "label_int":  resultado["label_int"],
+            "sensor_interface": str(sensor_interface or "").strip(),
         }
 
         if _callback is not None:
@@ -379,7 +480,6 @@ async def processar_fluxo(flow_dict: dict):
 
 # Subprocess 
 def _lançar_cicflowmeter(interface: str):
-    global _process
 
     # Usa wrapper local para reduzir latência de export de fluxos.
     python = sys.executable
@@ -391,7 +491,7 @@ def _lançar_cicflowmeter(interface: str):
         "--interface",
         interface,
         "--url",
-        FLOW_ENDPOINT,
+        f"{FLOW_ENDPOINT}?interface={quote(interface, safe='')}",
         "--expired-update",
         "1.0",
         "--packets-per-gc",
@@ -401,23 +501,29 @@ def _lançar_cicflowmeter(interface: str):
     print(f"[Sniffer] CMD: {' '.join(cmd)}")
 
     try:
-        _process = subprocess.Popen(
+        proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
         )
+        with _proc_lock:
+            _processes[interface] = proc
 
-        for line in _process.stdout:
+        for line in proc.stdout:
             if _stop_event.is_set():
                 break
             line = line.strip()
             if line:
                 print(f"[cicflowmeter] {line}")
 
-        _process.wait()
+        proc.wait()
 
     except FileNotFoundError:
         print(f"[Sniffer] ERRO: python não encontrado em {python}")
     except Exception as e:
         print(f"[Sniffer] Erro no subprocess: {e}")
+    finally:
+        with _proc_lock:
+            _processes.pop(interface, None)
+            _threads.pop(interface, None)
