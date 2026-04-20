@@ -27,3 +27,5 @@ psycopg2-binary
 
 
 
+
+tensorflow-cpu
