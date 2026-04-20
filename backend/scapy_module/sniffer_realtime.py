@@ -30,7 +30,11 @@ from web_attack_rules import WebAttackRulesEngine
 
 # Configuração
 FASTAPI_PORT  = 8000
-FLOW_ENDPOINT = f"http://127.0.0.1:{FASTAPI_PORT}/sniffer/flow-input"
+FLOW_ENDPOINT = (
+    os.getenv("SNIFFER_FLOW_ENDPOINT")
+    or os.getenv("FLOW_ENDPOINT")
+    or f"http://127.0.0.1:{FASTAPI_PORT}/sniffer/flow-input"
+)
 
 # Whitelist centralizada
 _whitelist_manager = get_whitelist()

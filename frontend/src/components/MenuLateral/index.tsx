@@ -1,10 +1,10 @@
 import React from 'react';
 import { 
-  MdPsychology, MdHub, 
+  MdHub, 
   MdNotifications, MdAssessment, 
   MdPerson
 } from 'react-icons/md';
-import { NavItem, SidebarContainer, StatusFooter } from './styles';
+import { NavItem, SidebarContainer} from './styles';
 
 const MENU_ITEMS = [
   //{ label: 'GERAL', path: '/settings/general', icon: <MdSettings size={18}/> },

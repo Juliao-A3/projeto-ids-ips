@@ -1,4 +1,4 @@
-import { Mail, Send, Bell, AlertCircle, MessageCircle, Users } from 'lucide-react';
+import { Mail, Send, Bell, AlertCircle} from 'lucide-react';
 import { ToggleSwitch } from '../ToggleSwitch';
 import { useNotifications } from '../../../hooks/useNotifications';
 import {

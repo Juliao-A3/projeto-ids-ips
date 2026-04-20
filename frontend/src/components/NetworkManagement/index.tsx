@@ -1,10 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Activity, Shield, Zap, Lock, Unlock, Radio } from 'lucide-react';
+import { Activity, Shield, Lock, Unlock, Radio } from 'lucide-react';
 import { ToggleSwitch } from '../ToggleSwitch';
 import { Dropdown } from '../Dropdown';
 import { TextArea } from '../TextArea';
 import { useNetwork } from '../../../hooks/useNetwork';
-import type { NetworkConfigSchema } from '../../../hooks/useNetwork';
 import { useAuth } from '../../contexts/AuthContext';
 import {
   Container, Content, Section, SectionHeader, SectionTitle,

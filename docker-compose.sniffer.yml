@@ -1,0 +1,20 @@
+services:
+  sniffer:
+    build:
+      context: .
+      dockerfile: sniffer/Dockerfile
+    restart: unless-stopped
+    network_mode: host
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    env_file:
+      - .env.sniffer
+    environment:
+      SNIFFER_INTERFACES: ${SNIFFER_INTERFACES:-eth0,eth1}
+      SNIFFER_FLOW_ENDPOINT: ${SNIFFER_FLOW_ENDPOINT:-https://api.seu-dominio.com/sniffer/flow-input}
+      SNIFFER_EXPIRED_UPDATE: ${SNIFFER_EXPIRED_UPDATE:-1.0}
+      SNIFFER_PACKETS_PER_GC: ${SNIFFER_PACKETS_PER_GC:-50}
+      SNIFFER_VERBOSE: ${SNIFFER_VERBOSE:-0}
+      ENABLE_HEURISTIC_ATTACK_OVERRIDE: ${ENABLE_HEURISTIC_ATTACK_OVERRIDE:-1}

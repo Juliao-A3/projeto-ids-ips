@@ -77,7 +77,7 @@ const spinRingRev = keyframes`
   to   { transform: rotate(-360deg); }
 `;
 
-const glitch = keyframes`
+export const glitch = keyframes`
   0%   { clip-path: inset(0 0 98% 0); transform: translate(-2px, 0); }
   20%  { clip-path: inset(40% 0 50% 0); transform: translate(2px, 0); }
   60%  { clip-path: inset(15% 0 70% 0); transform: translate(1px, 0); }

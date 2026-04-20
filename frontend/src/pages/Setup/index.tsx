@@ -24,16 +24,11 @@ export default function Setup() {
 
   const { register, handleSubmit, watch, formState: { errors } } = useForm<FormData>();
   const navigate = useNavigate();
-  const { setUser } = useAuth();
+  useAuth();
 
   const onSubmit = async (data: FormData) => {
     setLoading(true);
     try {
-      const response = await api.post("/auth/register", {
-        nome: data.name,
-        email: data.email,
-        senha: data.password
-      });
 
       // Mostra mensagem de sucesso
       alert("Conta criada com sucesso! Faça login para continuar.");

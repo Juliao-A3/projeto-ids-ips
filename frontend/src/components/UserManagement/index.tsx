@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { UserTable } from '../UserTable';
-import { PermissionsSection } from '../PermissionsSection';
 import { Modal } from '../Modal';
 import { AddUserForm } from '../AddUserForm';
 import { api } from '../../services/api';

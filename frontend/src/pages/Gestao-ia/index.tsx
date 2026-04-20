@@ -2,7 +2,7 @@ import {
   Container, Title, Grid, Card, FullCard, CardTitle,
   InfoRow, InfoLabel, InfoValue, AccuracyBar, AccuracyFill,
   Label, Select, InputNum, Btn, ProgressBar, ProgressFill,
-  FeatureList, FeatureItem, Table, Th, Td, Badge,
+  Table, Th, Td, Badge,
   ErrorMsg,
 } from './styles';
 import { useState, useRef } from 'react';
