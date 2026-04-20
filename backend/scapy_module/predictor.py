@@ -2,7 +2,12 @@ import os
 import pickle
 import numpy as np
 import pandas as pd
-import tensorflow as tf
+try:
+        import tensorflow as tf
+        TF_AVAILABLE = True
+except ImportError:
+        tf = None
+        TF_AVAILABLE = False
 
 # ── Paths ──────────────────────────────────────────────────────────────────
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
