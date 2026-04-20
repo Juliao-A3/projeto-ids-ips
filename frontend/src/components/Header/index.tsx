@@ -18,11 +18,6 @@ import {
   AlertConfig,
   ConfigButton,
   RelatorioButton,
-  UserAvatar,
-  UserContainer,
-  NameUser,
-  UserContent,
-  DescriptionUser,
 } from './styles';
 
 export function Header() {
@@ -58,8 +53,8 @@ export function Header() {
       try {
         const resp = await api.get('/service/system/metrics');
         setMetrics(resp.data);
-      } catch (e: any) {
-        const isTimeout = e?.code === 'ECONNABORTED' || String(e?.message || '').includes('timeout');
+      } catch (e: unknown) {
+        const isTimeout = (e as any)?.code === 'ECONNABORTED' || String((e as any)?.message || '').includes('timeout');
         if (!isTimeout) {
           console.error('Erro ao buscar métricas', e);
         } else {

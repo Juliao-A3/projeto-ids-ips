@@ -67,8 +67,8 @@ export function ChangePasswordModal({ onClose }: Props) {
       setSuccess(true);
       setTimeout(() => onClose(), 2000);
 
-    } catch (error: any) {
-      setApiError(error?.response?.data?.detail || "Erro de ligação ao servidor.");
+    } catch (error: unknown) {
+      setApiError((error as any)?.response?.data?.detail || "Erro de ligação ao servidor.");
     } finally {
       setLoading(false);
     }

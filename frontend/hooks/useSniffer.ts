@@ -120,7 +120,7 @@ export function useSniffer() {
             const diff = Math.min(anomaliasAtuais - lastAnomaliasRef.current, 5);
             const alertaBase =
               merged.find((p) => String(p?.tipo || '').toLowerCase() === 'alerta') ||
-              pacotesStatus.find((p) => String(p?.tipo || '').toLowerCase() === 'alerta') ||
+              pacotesStatus.find((p: { tipo: any; }) => String(p?.tipo || '').toLowerCase() === 'alerta') ||
               merged[0] ||
               pacotesStatus[0] ||
               {};

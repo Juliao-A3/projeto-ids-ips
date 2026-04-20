@@ -57,8 +57,8 @@ export function UserProfile() {
       setSuccess('Perfil atualizado com sucesso!');
       setEditing(false);
       setTimeout(() => setSuccess(''), 3000);
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Erro ao guardar');
+    } catch (err: unknown) {
+      setError((err as any)?.response?.data?.detail || 'Erro ao guardar');
     } finally {
       setSaving(false);
     }

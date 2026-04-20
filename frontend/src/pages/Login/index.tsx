@@ -40,7 +40,7 @@ export default function Login() {
 
   useEffect(() => {
     if (user) navigate("/", { replace: true });
-  }, [user]);
+  }, [user, navigate]);
 
   const onSubmit = async (data: FormData) => {
     try {
@@ -72,9 +72,9 @@ export default function Login() {
       setSuccess(true);
       setTimeout(() => navigate("/", { replace: true }), 500);
 
-    } catch (error: any) {
-      const status = error.response?.status;
-      const detail = error.response?.data?.detail;
+    } catch (error: unknown) {
+      const status = (error as any)?.response?.status;
+      const detail = (error as any)?.response?.data?.detail;
       if      (status === 403) setApiError('Conta desativada. Contacta o administrador.');
       else if (status === 401) setApiError('Email ou senha inválidos.');
       else                     setApiError(detail || 'Erro ao conectar ao servidor.');

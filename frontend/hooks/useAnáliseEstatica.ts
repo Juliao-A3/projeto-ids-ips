@@ -33,7 +33,7 @@ export function useAnaliseEstatica() {
   const [error, setError]             = useState('');
 
   // Upload e testar PCAP
-  const testarUpload = async (ficheiro: File, modelo?: string, limite?: number) => {
+  const testarUpload = async (ficheiro: File, modelo?: string, _limite?: number) => {
     try {
       setLoading(true);
       setError('');

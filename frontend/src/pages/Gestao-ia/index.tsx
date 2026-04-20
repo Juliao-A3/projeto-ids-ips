@@ -116,7 +116,7 @@ export function GestaoIA() {
   const {
     modelo, modelos, estatisticas, treino, inspecao,
     loading, treinando, error,
-    fetchModelo, fetchEstatisticas, inspecionarModelo, iniciarTreino,
+    fetchModelo, inspecionarModelo, iniciarTreino,
   } = useGestaoIA();
 
   const [modeloInsp, setModeloInsp] = useState('');
@@ -152,8 +152,8 @@ export function GestaoIA() {
       setAtivarMsg(`✓ ${res.data?.message || `Modelo ${nomeModelo} ativado com sucesso!`}`);
       fetchModelo();
       setTimeout(() => setAtivarMsg(''), 4000);
-    } catch (err: any) {
-      setAtivarMsg(`⚠ ${err.response?.data?.detail || 'Erro ao ativar modelo'}`);
+    } catch (err: unknown) {
+      setAtivarMsg(`⚠ ${(err as any)?.response?.data?.detail || 'Erro ao ativar modelo'}`);
     } finally {
       setAtivando(false);
     }
@@ -174,8 +174,8 @@ export function GestaoIA() {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       setCsvTreino(res.data);
-    } catch (err: any) {
-      setCsvErro(err.response?.data?.detail || 'Erro ao treinar com CSV');
+    } catch (err: unknown) {
+      setCsvErro((err as any)?.response?.data?.detail || 'Erro ao treinar com CSV');
     } finally {
       setCsvTreinando(false);
     }

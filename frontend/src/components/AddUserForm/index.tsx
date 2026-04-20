@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
-import { ToggleSwitch } from '../ToggleSwitch';
 import {
   Form,
   FormGroup,
@@ -13,7 +12,6 @@ import {
   PasswordStrength,
   StrengthBar,
   StrengthBarFill,
-  CheckboxGroup,
   ButtonGroup,
   CancelButton,
   SubmitButton,
@@ -30,7 +28,6 @@ export function AddUserForm({ onCancel, onSubmit }: AddUserFormProps) {
   const [role, setRole] = useState('analista');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [forcePasswordChange, setForcePasswordChange] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
@@ -42,15 +39,15 @@ export function AddUserForm({ onCancel, onSubmit }: AddUserFormProps) {
     setLoading(true);
 
     try {
-      await onSubmit({ name, email, role, password, forcePasswordChange });
+        await onSubmit({ name, email, role, password });
         setSuccess(true);
         setName('');
         setEmail('');
         setRole('analista');
         setPassword('');
         setTimeout(() => onCancel(), 1500);
-    } catch (err: any) {
-      setError(err.message || 'Erro ao criar usuário');
+    } catch (err: unknown) {
+        setError((err as any)?.message || 'Erro ao criar usuário');
     } finally {
       setLoading(false);
     }

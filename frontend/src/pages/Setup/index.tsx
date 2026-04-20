@@ -6,7 +6,6 @@ import {
   Form, Field, Label, InputRow, InputIcon, EyeBtn,
   StyledInput, ErrorMsg, SubmitBtn, LoginRow, LoginText, LoginLink
 } from "./styles";
-import { api } from "../../services/api";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
 
@@ -26,7 +25,7 @@ export default function Setup() {
   const navigate = useNavigate();
   useAuth();
 
-  const onSubmit = async (data: FormData) => {
+    const onSubmit = async () => {
     setLoading(true);
     try {
 
@@ -36,8 +35,8 @@ export default function Setup() {
       // Redireciona para o login
       navigate("/login", { replace: true });
 
-    } catch (err: any) {
-      if (err.response?.data?.detail) alert(err.response.data.detail);
+    } catch (err: unknown) {
+      if ((err as any)?.response?.data?.detail) alert((err as any).response.data.detail);
       else alert("Erro ao criar conta. Tente novamente.");
     } finally {
       setLoading(false);
