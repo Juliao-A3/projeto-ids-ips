@@ -22,10 +22,3 @@ xgboost>=1.7.0
 joblib>=1.3.0
 shap
 psycopg2-binary
-
-
-
-
-
-
-tensorflow-cpu
