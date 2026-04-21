@@ -14,7 +14,13 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-import backend.sniffer_routes as sniffer_routes
+try:
+        import backend.sniffer_routes as sniffer_routes
+            from backend.sniffer_routes import sniffer_router
+        SNIFFER_AVAILABLE = True
+except Exception:
+        sniffer_routes = None
+        SNIFFER_AVAILABLE = False
 from backend.ai_routes import ai_router
 from backend.auth_routes import auth_router
 from backend.dependencies import get_session
@@ -26,15 +32,13 @@ from backend.notification_routes import notification_router
 from backend.pastas_routes import pastas_router
 from backend.reports_routes import reports_router
 from backend.service_routes import service_router
-from backend.sniffer_routes import sniffer_router
-from backend.testar_routes import testar_router
-from backend.treinar_routes import treinar_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    sniffer_routes._session_factory = get_session
-    yield
-    if sniffer_routes._ips_instance and sniffer_routes._ips_instance.running:
+        if SNIFFER_AVAILABLE:
+                    sniffer_routes._session_factory = get_session
+                yield
+    if SNIFFER_AVAILABLE and sniffer_routes._ips_instance and sniffer_routes._ips_instance.running:
         sniffer_routes._ips_instance.parar()
 
 app = FastAPI(title="AEGIS IDS/IPS", version="4.0.2", lifespan=lifespan)
@@ -64,7 +68,8 @@ app.include_router(ai_router)
 app.include_router(notification_router)
 app.include_router(network_router)
 app.include_router(reports_router)
-app.include_router(sniffer_router)
+if SNIFFER_AVAILABLE:
+        app.include_router(sniffer_router)
 app.include_router(estatisticas_router)
 app.include_router(inspecionar_router)
 app.include_router(treinar_router)
