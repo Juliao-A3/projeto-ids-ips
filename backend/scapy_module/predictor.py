@@ -27,16 +27,26 @@ def _load_pickle(path: str, name: str):
     print(f"[Predictor] {name} carregado ✓")
     return obj
 
-print("[Predictor] A carregar modelo Keras...")
-model         = tf.keras.models.load_model(MODEL_PATH)
-scaler        = _load_pickle(SCALER_PATH,    "ids_scaler.pkl")
-le            = _load_pickle(ENCODER_PATH,   "ids_label_encoder.pkl")
-feature_names = list(_load_pickle(FEATURES_PATH, "ids_features.pkl"))
+model = None
+scaler = None
+le = None
+feature_names = []
+_CLASS_INDEX = {}
 
-print(f"[Predictor] Features ({len(feature_names)}): {feature_names}")
-print(f"[Predictor] Classes  ({len(le.classes_)}): {list(le.classes_)}")
-
-_CLASS_INDEX = {str(name).strip().lower(): idx for idx, name in enumerate(le.classes_)}
+if TF_AVAILABLE:
+    try:
+        print("[Predictor] A carregar modelo Keras...")
+        model         = tf.keras.models.load_model(MODEL_PATH)
+        scaler        = _load_pickle(SCALER_PATH,    "ids_scaler.pkl")
+        le            = _load_pickle(ENCODER_PATH,   "ids_label_encoder.pkl")
+        feature_names = list(_load_pickle(FEATURES_PATH, "ids_features.pkl"))
+        print(f"[Predictor] Features ({len(feature_names)}): {feature_names}")
+        print(f"[Predictor] Classes  ({len(le.classes_)}): {list(le.classes_)}")
+        _CLASS_INDEX = {str(name).strip().lower(): idx for idx, name in enumerate(le.classes_)}
+    except Exception as e:
+        print(f"[Predictor] Modelo nao disponivel: {e}")
+else:
+    print("[Predictor] TensorFlow nao disponivel - modo cloud")
 _WEB_PORTS = {80, 443, 8080, 8443}
 
 
