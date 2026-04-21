@@ -36,9 +36,9 @@ from backend.service_routes import service_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-        if SNIFFER_AVAILABLE:
-                    sniffer_routes._session_factory = get_session
-                yield
+    if SNIFFER_AVAILABLE:
+        sniffer_routes._session_factory = get_session
+    yield
     if SNIFFER_AVAILABLE and sniffer_routes._ips_instance and sniffer_routes._ips_instance.running:
         sniffer_routes._ips_instance.parar()
 
