@@ -73,6 +73,4 @@ if SNIFFER_AVAILABLE:
         app.include_router(sniffer_router)
 app.include_router(estatisticas_router)
 app.include_router(inspecionar_router)
-app.include_router(treinar_router)
-app.include_router(testar_router)
 app.include_router(pastas_router)
