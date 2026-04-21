@@ -16,10 +16,11 @@ if str(PROJECT_ROOT) not in sys.path:
 
 try:
         import backend.sniffer_routes as sniffer_routes
-            from backend.sniffer_routes import sniffer_router
+        from backend.sniffer_routes import sniffer_router
         SNIFFER_AVAILABLE = True
 except Exception:
         sniffer_routes = None
+        sniffer_router = None
         SNIFFER_AVAILABLE = False
 from backend.ai_routes import ai_router
 from backend.auth_routes import auth_router
