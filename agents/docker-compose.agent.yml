@@ -1,0 +1,32 @@
+services:
+  sniffer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+
+    # Acesso direto à rede do host — obrigatório para capturar tráfego
+    network_mode: host
+
+    # Permissões para iptables e captura de pacotes
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+
+    env_file:
+      - .env.sniffer
+
+    environment:
+      SNIFFER_INTERFACES: ${SNIFFER_INTERFACES:-eth0,eth1}
+      SNIFFER_ACTIVE_TIMEOUT: ${SNIFFER_ACTIVE_TIMEOUT:-2}
+      CONFIDENCE_THRESHOLD: ${CONFIDENCE_THRESHOLD:-0.70}
+      CLOUD_URL: ${CLOUD_URL}
+      AGENT_TOKEN: ${AGENT_TOKEN}
+
+    volumes:
+      # Persiste logs locais
+      - aegis_logs:/app/logs
+
+volumes:
+  aegis_logs:
