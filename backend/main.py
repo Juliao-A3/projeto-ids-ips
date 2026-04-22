@@ -33,6 +33,7 @@ from backend.notification_routes import notification_router
 from backend.pastas_routes import pastas_router
 from backend.reports_routes import reports_router
 from backend.service_routes import service_router
+from backend.agent_routes import router as agent_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -62,6 +63,7 @@ app.add_middleware(CORSMiddleware,
     allow_headers=["*"],
 )
 
+app.include_router(agent_router)
 app.include_router(auth_router)
 app.include_router(monitor_router)
 app.include_router(service_router)
