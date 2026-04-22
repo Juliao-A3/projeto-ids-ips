@@ -1,4 +1,6 @@
 services:
+
+  # ─── Base de dados ────────────────────────────────────────
   db:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -14,6 +16,7 @@ services:
       timeout: 5s
       retries: 5
 
+  # ─── Backend FastAPI ──────────────────────────────────────
   api:
     build:
       context: .
@@ -23,19 +26,20 @@ services:
       - .env.cloud
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-aegis}:${POSTGRES_PASSWORD:-aegis123}@db:5432/${POSTGRES_DB:-aegis}
-      FRONTEND_ORIGINS: ${FRONTEND_ORIGINS:-https://frontend.seu-dominio.com}
-      CORS_ALLOW_ORIGIN_REGEX: ${CORS_ALLOW_ORIGIN_REGEX:-}
+      FRONTEND_ORIGINS: ${FRONTEND_ORIGINS:-http://localhost}
     depends_on:
       db:
         condition: service_healthy
     ports:
       - "8000:8000"
 
+  # ─── Frontend React ───────────────────────────────────────
   web:
     build:
-      context: ./frontend
+      context: .
+      dockerfile: frontend/Dockerfile
       args:
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-https://api.seu-dominio.com}
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
     restart: unless-stopped
     depends_on:
       - api
