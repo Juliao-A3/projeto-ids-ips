@@ -42,37 +42,15 @@ async def receber_alerta_agente(
     db: Session = Depends(get_db),
     token: str = Depends(verificar_token)
 ):
-    """Recebe alerta de ataque detetado pelo agente local."""
-
-    # Guarda alerta na BD
     novo_alerta = Alerta(
         ip_origem=alerta.ip_origem,
-        ip_destino=alerta.ip_destino,
         tipo_ataque=alerta.tipo_ataque,
         confianca=alerta.confianca,
-        interface=alerta.interface,
-        protocolo=alerta.protocolo,
-        porta_destino=alerta.porta_destino,
         bloqueado=alerta.bloqueado,
-        origem="agente",
-        criado_em=datetime.utcnow()
     )
     db.add(novo_alerta)
-
-    # Regista IP bloqueado se aplicável
-    if alerta.bloqueado and alerta.ip_origem:
-        ip_existe = db.query(IpsBloqueados).filter_by(ip=alerta.ip_origem).first()
-        if not ip_existe:
-            db.add(IpsBloqueados(
-                ip=alerta.ip_origem,
-                motivo=alerta.tipo_ataque,
-                bloqueado_por="agente",
-                criado_em=datetime.utcnow()
-            ))
-
     db.commit()
-
-    return {"status": "ok", "mensagem": "Alerta registado com sucesso"}
+    return {"status": "ok"}
 
 
 # ─── Health check do agente ──────────────────────────────────────────
