@@ -5,7 +5,7 @@ import logging
 
 logger = logging.getLogger("aegis.sender")
 
-CLOUD_URL = os.getenv("CLOUD_URL", "https://api.seu-dominio.com")
+CLOUD_URL = os.getenv("CLOUD_URL", "https://projeto-ids-ips.onrender.com/")
 AGENT_TOKEN = os.getenv("AGENT_TOKEN", "")
 TIMEOUT = 10  # segundos
 
