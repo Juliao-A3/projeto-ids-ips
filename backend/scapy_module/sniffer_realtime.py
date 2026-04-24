@@ -39,9 +39,13 @@ FLOW_ENDPOINT = (
 # Whitelist centralizada
 _whitelist_manager = get_whitelist()
 
+# 🔧 DEBUG: Desabilitar whitelist temporariamente para testar captura
+_WHITELIST_ENABLED = False  # Mudar para True depois
 
 def _should_ignore_flow(src_ip: str, dst_ip: str) -> bool:
     """Verifica se um fluxo deve ser ignorado por estar na whitelist."""
+    if not _WHITELIST_ENABLED:
+        return False  # DEBUG: Permitir tudo
     return _whitelist_manager.is_ip_whitelisted(src_ip) or _whitelist_manager.is_ip_whitelisted(dst_ip)
 
 # Estado interno 

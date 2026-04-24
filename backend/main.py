@@ -5,6 +5,7 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from dotenv import load_dotenv
 
 # Silence all sklearn parallel warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="sklearn.utils.parallel")
@@ -13,6 +14,25 @@ warnings.filterwarnings("ignore", category=UserWarning, module="sklearn.utils.pa
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+
+app_env = os.getenv("APP_ENV", "development").lower()
+if app_env in {"production", "staging"}:
+    env_candidates = (
+        PROJECT_ROOT / ".env.cloud",
+        PROJECT_ROOT / ".env",
+        PROJECT_ROOT / "backend" / ".env",
+    )
+else:
+    # Em dev local, prioriza .env para evitar usar credenciais de cloud por engano.
+    env_candidates = (
+        PROJECT_ROOT / ".env",
+        PROJECT_ROOT / "backend" / ".env",
+        PROJECT_ROOT / ".env.cloud",
+    )
+
+for env_path in env_candidates:
+    if env_path.exists():
+        load_dotenv(env_path, override=False)
 
 try:
         import backend.sniffer_routes as sniffer_routes
@@ -51,7 +71,9 @@ _default_origins = [
     "http://127.0.0.1:4173",
 ]
 _env_origins = os.getenv("FRONTEND_ORIGINS", "")
-_allowed_origins = [o.strip() for o in _env_origins.split(",") if o.strip()] or _default_origins
+_env_origins_list = [o.strip() for o in _env_origins.split(",") if o.strip()]
+# Mantem as origens locais padrao sempre liberadas em desenvolvimento.
+_allowed_origins = list(dict.fromkeys(_default_origins + _env_origins_list))
 _allowed_origin_regex = os.getenv("CORS_ALLOW_ORIGIN_REGEX") or None
 
 app.add_middleware(CORSMiddleware,

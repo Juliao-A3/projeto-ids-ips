@@ -1,6 +1,4 @@
 services:
-
-  # ─── Base de dados ────────────────────────────────────────
   db:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -8,6 +6,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-aegis}
       POSTGRES_USER: ${POSTGRES_USER:-aegis}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aegis123}
+    ports:
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -16,7 +16,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # ─── Backend FastAPI ──────────────────────────────────────
+
   api:
     build:
       context: .
@@ -24,14 +24,19 @@ services:
     restart: unless-stopped
     env_file:
       - .env.cloud
+    network_mode: host          # acesso directo à rede da VM
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    privileged: true
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-aegis}:${POSTGRES_PASSWORD:-aegis123}@db:5432/${POSTGRES_DB:-aegis}
-      FRONTEND_ORIGINS: ${FRONTEND_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-aegis}:${POSTGRES_PASSWORD:-aegis123}@127.0.0.1:5432/${POSTGRES_DB:-aegis}
+      FRONTEND_ORIGINS: http://192.168.100.27:8080,http://localhost:8080,http://127.0.0.1:8080
+    volumes:
+      - aegis_logs:/app/logs
     depends_on:
       db:
         condition: service_healthy
-    ports:
-      - "8000:8000"
 
   # ─── Frontend React ───────────────────────────────────────
   web:
@@ -39,7 +44,9 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+        # ← ESTA É A CORREÇÃO PRINCIPAL
+        # O browser acede pelo IP da VM, não por localhost
+        VITE_API_URL: http://192.168.100.27:8000
     restart: unless-stopped
     depends_on:
       - api
@@ -48,3 +55,5 @@ services:
 
 volumes:
   postgres_data:
+  aegis_logs:
+    name: aegis_logs

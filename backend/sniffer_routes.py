@@ -495,7 +495,9 @@ async def receber_fluxo(request: Request):
     """
     try:
         flow_dict = await request.json()
+        print(f"[flow-input] Recebido fluxo: {flow_dict.get('src_ip')}:{flow_dict.get('src_port')} → {flow_dict.get('dst_ip')}:{flow_dict.get('dst_port')}")
         dados = await _sniffer_processar(flow_dict)
+        print(f"[flow-input] processar_fluxo retornou: {type(dados)}")
 
         # Fallback de entrega: garante histórico de logs no /sniffer/status
         # mesmo quando o callback em tempo real falha.

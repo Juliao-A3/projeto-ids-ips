@@ -82,7 +82,7 @@ Monitoramento simultâneo WAN + LAN:
    - `DATABASE_URL` será injetada pelo Postgres do Render
    - `SECRET_KEY` será gerada automaticamente
    - `CORS_ALLOW_ORIGIN_REGEX` já aceita domínios `*.onrender.com`
-   - `VITE_API_BASE_URL` aponta para `https://aegis-backend.onrender.com`
+   - `VITE_API_URL` aponta para a URL pública do backend (ex.: `https://aegis-backend.onrender.com`)
 
 ## Observações
 

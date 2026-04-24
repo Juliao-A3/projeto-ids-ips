@@ -1,6 +1,4 @@
 services:
-
-  # ─── Base de dados ────────────────────────────────────────
   db:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -8,6 +6,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-aegis}
       POSTGRES_USER: ${POSTGRES_USER:-aegis}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aegis123}
+    ports:
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -16,7 +16,6 @@ services:
       timeout: 5s
       retries: 5
 
-  # ─── Backend FastAPI ──────────────────────────────────────
   api:
     build:
       context: .
@@ -24,16 +23,17 @@ services:
     restart: unless-stopped
     env_file:
       - .env.cloud
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    privileged: true
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-aegis}:${POSTGRES_PASSWORD:-aegis123}@db:5432/${POSTGRES_DB:-aegis}
-      FRONTEND_ORIGINS: ${FRONTEND_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-aegis}:${POSTGRES_PASSWORD:-aegis123}@127.0.0.1:5432/${POSTGRES_DB:-aegis}
     depends_on:
       db:
         condition: service_healthy
-    ports:
-      - "8000:8000"
 
-  # ─── Frontend React ───────────────────────────────────────
   web:
     build:
       context: ./frontend
