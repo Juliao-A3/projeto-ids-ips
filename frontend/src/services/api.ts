@@ -1,9 +1,23 @@
 import axios from "axios";
 
-const API_BASE_URL =
+const configuredApiBaseUrl =
   import.meta.env.VITE_API_URL?.trim() ||
   import.meta.env.VITE_API_BASE_URL?.trim() ||
-  "https://aegis-backend.onrender.com";
+  "";
+
+const browserHost =
+  typeof window !== "undefined" ? window.location.hostname : "localhost";
+const browserIsLocal = browserHost === "localhost" || browserHost === "127.0.0.1";
+
+const configuredUsesLocalhost = /^(https?:\/\/)(localhost|127\.0\.0\.1)(:\d+)?$/i.test(
+  configuredApiBaseUrl
+);
+
+const API_BASE_URL = configuredApiBaseUrl
+  ? configuredUsesLocalhost && !browserIsLocal
+    ? configuredApiBaseUrl.replace(/localhost|127\.0\.0\.1/i, browserHost)
+    : configuredApiBaseUrl
+  : `http://${browserHost}:8000`;
 
 export const api = axios.create({
   baseURL: API_BASE_URL,

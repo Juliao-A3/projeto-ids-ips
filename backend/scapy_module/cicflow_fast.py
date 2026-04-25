@@ -70,12 +70,13 @@ def _create_sniffer_without_bpf(args):
     Em alguns ambientes Linux + container host mode, o filtro BPF
     do cicflowmeter pode resultar em zero pacotes capturados.
     """
-    session = flow_session_mod.FlowSession(
-        output_mode="url",
-        output=args.url,
-        fields=None,
-        verbose=args.verbose,
-    )
+    # Set class attributes BEFORE instantiation
+    flow_session_mod.FlowSession.output_mode = "url"
+    flow_session_mod.FlowSession.output = args.url
+    flow_session_mod.FlowSession.fields = None
+    flow_session_mod.FlowSession.verbose = args.verbose
+    
+    session = flow_session_mod.FlowSession()
     cic_sniffer._start_periodic_gc(session, interval=cic_sniffer.GC_INTERVAL)
 
     sniffer = AsyncSniffer(

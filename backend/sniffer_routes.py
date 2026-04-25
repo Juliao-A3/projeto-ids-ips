@@ -10,6 +10,8 @@ from collections import defaultdict, deque
 from typing import Union
 from pathlib import Path
 
+import psutil
+
 sys.path.insert(0, str(Path(__file__).parent))
 from scapy_module.sniffer_realtime import processar_fluxo as _sniffer_processar
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException
@@ -52,6 +54,47 @@ def _get_loop():
         _loop = asyncio.new_event_loop()
         threading.Thread(target=_loop.run_forever, daemon=True).start()
     return _loop
+
+
+def _listar_interfaces_ativas() -> list[str]:
+    stats = psutil.net_if_stats()
+    addrs = psutil.net_if_addrs()
+
+    candidatas: list[str] = []
+    for nome, stat in stats.items():
+        if not stat.isup:
+            continue
+        if nome == "lo" or nome.lower().startswith("loopback"):
+            continue
+        if not addrs.get(nome):
+            continue
+        candidatas.append(nome)
+
+    if candidatas:
+        return candidatas
+
+    fallback = [nome for nome, stat in stats.items() if stat.isup and nome != "lo"]
+    if fallback:
+        return fallback
+
+    return [nome for nome in stats.keys() if nome != "lo"] or list(stats.keys())
+
+
+def _resolver_interfaces_para_sniffer(interface_final: str, interfaces: list[str]) -> list[str]:
+    disponiveis = _listar_interfaces_ativas()
+    disponiveis_set = set(disponiveis)
+
+    candidatas: list[str] = []
+    if interfaces:
+        candidatas.extend([str(item).strip() for item in interfaces if str(item).strip()])
+    if interface_final:
+        candidatas.extend([parte.strip() for parte in str(interface_final).split(",") if parte.strip()])
+
+    validas = [iface for iface in candidatas if iface in disponiveis_set]
+    if validas:
+        return list(dict.fromkeys(validas))
+
+    return disponiveis
 
 # ── Schemas 
 class SnifferStartSchema(BaseModel):
@@ -302,20 +345,21 @@ async def start_sniffer(
                     _whitelist_manager.add_exact_ip(ip)
 
     loop = _get_loop()
-    interfaces_capture = []
-    if dados.interfaces:
-        interfaces_capture.extend([str(item).strip() for item in dados.interfaces if str(item).strip()])
-    if interface_final:
-        interfaces_capture.extend([part.strip() for part in str(interface_final).split(',') if part.strip()])
-    if not interfaces_capture:
-        interfaces_capture = ['eth0']
+    deduped_interfaces = _resolver_interfaces_para_sniffer(interface_final, dados.interfaces or [])
+    if not deduped_interfaces:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Nenhuma interface de captura válida foi encontrada no sistema. "
+                "Verifique se o Docker/host expõe a interface correta."
+            ),
+        )
 
-    deduped_interfaces = []
-    seen_interfaces = set()
-    for iface in interfaces_capture:
-        if iface not in seen_interfaces:
-            seen_interfaces.add(iface)
-            deduped_interfaces.append(iface)
+    if interface_final and interface_final not in deduped_interfaces:
+        print(
+            f"[Sniffer] Interface solicitada '{interface_final}' não está ativa; "
+            f"usando {deduped_interfaces}"
+        )
 
     _sniffer_iniciar_multiplas(
         interfaces=deduped_interfaces,
