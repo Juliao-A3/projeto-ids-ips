@@ -23,31 +23,32 @@
    🏗️  Troubleshooting completo
 
 
-🎯 PRÓXIMAS AÇÕES - COMECE AQUI:
+🎯 STATUS ATUAL E PRÓXIMAS AÇÕES:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-PASSO 1: Entender o Plano (5 min)
-  📖 Abrir: DEPLOYMENT_SUMMARY.md
-     ou https://seu-editor/DEPLOYMENT_SUMMARY.md
+STATUS: backend e frontend já estão hospedados.
+   ✅ Backend no Render
+   ✅ Frontend na Vercel
+   ⏳ Falta subir o sniffer local, testar o envio para a cloud e confirmar o dashboard
 
-PASSO 2: Validar Pré-Requisitos (2 min)
+PASSO 1: Confirmar URLs e tokens (5 min)
+   📖 Abrir: DEPLOYMENT_SUMMARY.md
+   📖 Abrir: DEPLOYMENT_STEP_BY_STEP.md
+   📖 Abrir: DEPLOYMENT_CLOUD_PLAN.md
+
+PASSO 2: Validar Pré-Requisitos Locais (2 min)
   🔍 Execute no terminal:
      bash check_before_deployment.sh
 
-PASSO 3: Se OK, Começar Deploy (60 min)
-  📋 Seguir: DEPLOYMENT_STEP_BY_STEP.md
-     Etapa 1: Backend Render (15 min)
-     Etapa 2: Deploy Backend (15 min)
-     Etapa 3: Frontend Vercel (10 min)
-     Etapa 4: Deploy Frontend (10 min)
-     Etapa 5: Sniffer Local (15 min)
-     Etapa 6: Validação (5 min)
+PASSO 3: Configurar Sniffer Local (15 min)
+   📋 Seguir a etapa 5 de DEPLOYMENT_STEP_BY_STEP.md
+   📋 Use: bash setup_sniffer_interactive.sh
 
 PASSO 4: Validar Tudo Online (5 min)
   ✅ Execute no terminal:
      bash validate_deployment.sh
 
-PASSO 5: Acessar Dashboard
+PASSO 5: Acessar Dashboard e verificar interfaces
   🌐 Abrir navegador:
      https://seu-projeto.vercel.app
 
@@ -92,11 +93,11 @@ PASSO 5: Acessar Dashboard
 🔑 VALORES CRÍTICOS A GUARDAR:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Após começar o deployment, anote estes valores:
+Anote estes valores e confirme se batem com o que já foi publicado:
 
-  Backend URL:      https://seu-backend.onrender.com
-  Frontend URL:     https://seu-projeto.vercel.app
-  Sniffer Token:    seu_token_super_seguro_aqui
+   Backend URL:      https://projeto-ids-ips.onrender.com
+   Frontend URL:     https://projeto-ids-ips.vercel.app
+   Sniffer Token:    rnd_NI58G0zUFnPDd88wjSYPfCnCBfZO
   Interfaces:       eth0,eth1,eth2,wlan0
   Zones:            eth0:wan,eth1:lan,eth2:lan,wlan0:wlan
 
@@ -104,14 +105,12 @@ Após começar o deployment, anote estes valores:
 ✨ CHECKLIST DE PROGRESSO:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Durante o deployment:
+Estado atual:
 
+ [x] Backend deployed no Render (URL ativa)
+ [x] Frontend deployed no Vercel (URL ativa)
  [ ] Leitura de DEPLOYMENT_SUMMARY.md completada
  [ ] check_before_deployment.sh passou (todos OK)
- [ ] Backend preparado localmente
- [ ] Backend deployed no Render (verde no dashboard)
- [ ] Frontend preparado localmente
- [ ] Frontend deployed no Vercel (URL ativa)
  [ ] .env.sniffer criado com valores corretos
  [ ] Docker Sniffer container rodando
  [ ] Sniffer conectado ao backend (/sniffer/status 200 OK)
@@ -125,13 +124,11 @@ Durante o deployment:
 ⏱️  TIMELINE ESPERADO:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  Leitura + Validação:        10 min
-  Backend prep + deploy:      30 min
-  Frontend prep + deploy:     20 min
-  Sniffer local:              15 min
-  Testes finais:              10 min
+   Confirmação de URLs:         5 min
+   Sniffer local:              15 min
+   Testes finais:              10 min
   ─────────────────────────────────
-  TOTAL:                      ~85 min (1h 25min)
+   TOTAL:                      ~30 min
 
 
 📞 DOCUMENTOS DE REFERÊNCIA:
@@ -156,13 +153,8 @@ Durante o deployment:
    └─ Testa tudo após estar online
 
 
-⚠️  IMPORTANTE ANTES DE COMEÇAR:
+⚠️  IMPORTANTE AGORA:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-CRIE CONTAS (se não tiver):
-  ✓ GitHub (gratuito) - https://github.com
-  ✓ Render (gratuito tier) - https://render.com
-  ✓ Vercel (gratuito tier) - https://vercel.com
 
 TENHA PRONTO:
   ✓ Código no GitHub pushed (branch main)
@@ -174,10 +166,10 @@ TENHA PRONTO:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 P: Por onde começo?
-R: Leia DEPLOYMENT_SUMMARY.md (5 min) e execute check_before_deployment.sh
+R: Leia DEPLOYMENT_SUMMARY.md (5 min), depois configure o sniffer local
 
 P: Quanto tempo leva?
-R: ~90 minutos. Deploy automático = mais rápido.
+R: ~30 minutos. Backend e frontend já estão no ar.
 
 P: Vai cobrar?
 R: Não. Render + Vercel têm tier gratuito.
@@ -205,7 +197,7 @@ Após ler:
   bash check_before_deployment.sh
 
 Se tudo OK:
-  Siga as instruções em DEPLOYMENT_STEP_BY_STEP.md
+   Siga a etapa do sniffer em DEPLOYMENT_STEP_BY_STEP.md
 
 Boa sorte! 🚀
 

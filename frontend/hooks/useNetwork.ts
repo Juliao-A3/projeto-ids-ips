@@ -44,9 +44,26 @@ export function useNetwork() {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   const fetchInterfaces = useCallback(() => { 
-    api.get('/network/interfaces')
-      .then(r => setInterfaces(r.data))
-      .catch(() => setError('Erro ao carregar interfaces'));
+    api.get('/sniffer/interfaces')
+      .then(r => {
+        // Retorna a lista de interfaces monitoradas pelo sniffer
+        const monitored = r.data.monitored_interfaces || [];
+        setInterfaces(monitored.map((name: string) => ({
+          name: name,
+          status: "UP",
+          speed: "N/A",
+          ip: "",
+          mac: "",
+          packets_sent: 0,
+          packets_recv: 0,
+        })));
+      })
+      .catch(() => {
+        // Fallback para /network/interfaces se /sniffer/interfaces falhar
+        api.get('/network/interfaces')
+          .then(r => setInterfaces(r.data))
+          .catch(() => setError('Erro ao carregar interfaces'));
+      });
   }, []);
 
   const fetchBlockedIps = useCallback(() => {
@@ -75,7 +92,22 @@ export function useNetwork() {
   useEffect(() => {
     setLoading(true);
     Promise.all([
-      api.get('/network/interfaces'),
+      api.get('/sniffer/interfaces')
+        .then(r => {
+          const monitored = r.data.monitored_interfaces || [];
+          return {
+            data: monitored.map((name: string) => ({
+              name: name,
+              status: "UP",
+              speed: "N/A",
+              ip: "",
+              mac: "",
+              packets_sent: 0,
+              packets_recv: 0,
+            }))
+          };
+        })
+        .catch(() => api.get('/network/interfaces')),
       api.get('/network/blocked-ips').catch(() => ({ data: [] })),
       api.get('/network/config').catch(() => ({ data: null })),
     ])

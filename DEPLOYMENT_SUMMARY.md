@@ -2,9 +2,11 @@
 
 ## Situação Atual
 - ✅ Código do backend e frontend pronto  
+- ✅ Backend já está hospedado no Render
+- ✅ Frontend já está hospedado na Vercel
 - ✅ Docker compose configurado localmente
 - ✅ Documentação de arquitetura existente
-- ❌ Nada em produção ainda
+- ⏳ Falta ativar/validar o sniffer local e a integração com a cloud
 
 ## Objetivo Geral
 ```
@@ -19,7 +21,7 @@ Sniffer local (este PC) → Backend Online (Render) ← Frontend Online (Vercel)
 │                   ☁️ NUVEM (ONLINE)                      │
 │  ┌─────────────────────────────────────────────────┐    │
 │  │ Frontend Vercel                                 │    │
-│  │ https://seu-projeto.vercel.app                  │    │
+│  │ https://projeto-ids-ips.vercel.app              │    │
 │  │ (Acesso público, SPA React/Vite)               │    │
 │  └────────────────────┬────────────────────────────┘    │
 │                       │                                  │
@@ -28,7 +30,7 @@ Sniffer local (este PC) → Backend Online (Render) ← Frontend Online (Vercel)
 │                       │                                  │
 │  ┌────────────────────▼────────────────────────────┐    │
 │  │ Backend Render             ┌──────────────────┐ │    │
-│  │ https://seu-backend.onrender.com             │ │    │
+│  │ https://projeto-ids-ips.onrender.com           │ │    │
 │  │ (FastAPI + Autenticação)   │ PostgreSQL      │ │    │
 │  │                            │ Gerenciado      │ │    │
 │  │ GET  /health               │                 │ │    │
@@ -65,20 +67,15 @@ Sniffer local (este PC) → Backend Online (Render) ← Frontend Online (Vercel)
 
 ## 📋 4 Etapas Principais
 
-### 1️⃣ Backend no Render (15 min)
-- [ ] Revisar `backend/config.py` - CORS configurado
-- [ ] Push para GitHub  
-- [ ] Render Dashboard → New Blueprint
-- [ ] Confirmar `render.yaml`
-- [ ] Deploy automático
-- **URL Final:** `https://seu-backend.onrender.com`
+### 1️⃣ Backend no Render
+- [x] Já hospedado e acessível
+- [ ] Validar saúde e rotas
+- **URL Final:** `https://projeto-ids-ips.onrender.com`
 
-### 2️⃣ Frontend no Vercel (10 min)
-- [ ] Revisar `frontend/.env.production` - API URL correto
-- [ ] Git push
-- [ ] Vercel Dashboard → Import Repository
-- [ ] Deploy automático
-- **URL Final:** `https://seu-projeto.vercel.app`
+### 2️⃣ Frontend no Vercel
+- [x] Já hospedado e acessível
+- [ ] Validar carregamento e login
+- **URL Final:** `https://projeto-ids-ips.vercel.app`
 
 ### 3️⃣ Sniffer Local (15 min)
 - [ ] Copiar `.env.sniffer.example` → `.env.sniffer`
@@ -99,8 +96,8 @@ Sniffer local (este PC) → Backend Online (Render) ← Frontend Online (Vercel)
 
 | Item | Valor | Onde Usar |
 |---|---|---|
-| **BACKEND_URL** | `https://seu-backend.onrender.com` | `.env.sniffer`, `frontend/.env.production` |
-| **SENSOR_API_TOKEN** | `seu_token_super_seguro_aleatorio` | `.env.sniffer`, Render env vars |
+| **BACKEND_URL** | `https://projeto-ids-ips.onrender.com` | `.env.sniffer`, `frontend/.env.production` |
+| **SENSOR_API_TOKEN** | `rnd_NI58G0zUFnPDd88wjSYPfCnCBfZO` | `.env.sniffer`, Render env vars |
 | **FRONTEND_ORIGINS** | `*.vercel.app` | `backend/config.py`, Render env vars |
 | **VITE_API_URL** | Backend URL | `frontend/.env.production` |
 
@@ -149,8 +146,8 @@ curl -H "Authorization: Bearer seu_token" \
 **Quando tudo estiver correto:**
 
 ```
-🟢 https://seu-projeto.vercel.app           [Frontend OK]
-🟢 https://seu-backend.onrender.com/health  [Backend OK]
+🟢 https://projeto-ids-ips.vercel.app       [Frontend OK]
+🟢 https://projeto-ids-ips.onrender.com/health  [Backend OK]
 🟢 Sniffer container rodando                [Local OK]
 🟢 Dashboard mostra interfaces: eth0, eth1, eth2, wlan0
 🟢 Alertas aparecendo em tempo real
@@ -183,12 +180,12 @@ curl -H "Authorization: Bearer seu_token" \
 
 ## 🎯 Timeline Estimado
 
-- **Render Deploy:** 5-10 min (automático)
-- **Vercel Deploy:** 2-3 min (automático)  
+- **Backend já hospedado:** concluído
+- **Frontend já hospedado:** concluído  
 - **Sniffer Local:** 10 min (docker + config)
 - **Testes:** 5-10 min (validation + checks)
 
-**Total:** ~30-45 minutos ⏱️
+**Total restante:** ~15-25 minutos ⏱️
 
 ---
 
@@ -196,14 +193,14 @@ curl -H "Authorization: Bearer seu_token" \
 
 Imediatamente após o deployment estar online:
 
-1. **Monitoramento:** Setup alertas de uptime
-2. **Backups:** Configurar backup automático do PostgreSQL Render
-3. **HTTPS:** Domínio próprio (opcional)
-4. **CI/CD:** GitHub Actions para deploy automático
+1. **Sniffer:** Criar `.env.sniffer` e iniciar o container local
+2. **Validação:** Rodar `validate_deployment.sh`
+3. **Monitoramento:** Confirmar interfaces no dashboard
+4. **Backups:** Conferir backup automático do PostgreSQL Render
 5. **Logs Centralizados:** Integrar com serviço de logging
 
 ---
 
-**Status:** 🔴 **PRONTO PARA DEPLOY**  
-**Próxima ação:** Começar FASE 1 (Backend no Render)  
+**Status:** 🟡 **BACKEND E FRONTEND ONLINE, FALTA SNIFFER**  
+**Próxima ação:** Configurar o sniffer local e validar integração  
 **Última atualização:** 2026-04-27

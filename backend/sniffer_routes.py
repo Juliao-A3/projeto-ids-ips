@@ -44,6 +44,7 @@ _contagem_ips: defaultdict[str, int] = defaultdict(int)
 _ultimos_pacotes: deque[dict] = deque(maxlen=50)
 _stats_lock = threading.Lock()
 _ips_instance = IPSService(threshold=5)
+_sniffer_interfaces_cache: list[str] = []  # Cache das interfaces registradas
 
 # ── Event loop dedicado 
 _loop: Optional[asyncio.AbstractEventLoop] = None
@@ -435,6 +436,46 @@ async def get_status(
         "ultimos_pacotes":    ultimos_pacotes,
         "contagem_ips":       contagem_ips,
     }
+
+
+@sniffer_router.get("/interfaces")
+async def get_sniffer_interfaces(
+    usuario = Depends(require_role(["admin", "analista", "operador"]))
+):
+    """
+    Retorna as interfaces que o sniffer está monitorando.
+    Essas interfaces são registradas quando o sniffer se conecta via /sniffer/register
+    """
+    return {
+        "monitored_interfaces": _sniffer_interfaces_cache,
+        "count": len(_sniffer_interfaces_cache),
+        "status": "active" if _sniffer_interfaces_cache else "no_interfaces"
+    }
+
+
+@sniffer_router.post("/register")
+async def register_sniffer(request: Request):
+    """
+    Endpoint chamado pelo sniffer quando inicia para registrar suas interfaces.
+    Pode ser chamado sem autenticação (é chamado pelo sniffer container).
+    """
+    global _sniffer_interfaces_cache
+    try:
+        body = await request.json()
+        interfaces = body.get("interfaces", [])
+        
+        if isinstance(interfaces, list):
+            _sniffer_interfaces_cache = [str(i).strip() for i in interfaces if i]
+            print(f"[Sniffer Register] Interfaces registradas: {_sniffer_interfaces_cache}", flush=True)
+            
+        return {
+            "success": True,
+            "registered_interfaces": _sniffer_interfaces_cache,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        print(f"[Sniffer Register] Erro: {e}", flush=True)
+        return {"success": False, "error": str(e)}, 400
 
 
 @sniffer_router.post("/whitelist/add")

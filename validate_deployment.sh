@@ -16,8 +16,8 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # URLs (editar com seus valores)
-BACKEND_URL="${BACKEND_URL:-https://seu-backend.onrender.com}"
-FRONTEND_URL="${FRONTEND_URL:-https://seu-projeto.vercel.app}"
+BACKEND_URL="${BACKEND_URL:-https://projeto-ids-ips.onrender.com}"
+FRONTEND_URL="${FRONTEND_URL:-https://projeto-ids-ips.vercel.app}"
 SENSOR_TOKEN="${SENSOR_API_TOKEN:-seu_token_super_seguro}"
 
 echo -e "${BLUE}========================================${NC}"

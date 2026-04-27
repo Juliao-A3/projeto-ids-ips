@@ -54,18 +54,18 @@ DATABASE_URL=postgres://...  # Auto-injetada
 SECRET_KEY=seu_secret_aleatorio_gerado
 CORS_ALLOW_ORIGIN_REGEX=.*vercel.app  # Para Vercel
 FRONTEND_ORIGINS=*.vercel.app
-SENSOR_API_TOKEN=seu_token_super_seguro  # Para sniffer autenticar
+SENSOR_API_TOKEN=rnd_NI58G0zUFnPDd88wjSYPfCnCBfZO  # Para sniffer autenticar
 ENVIRONMENT=production
 ```
 
 **Passo 4: Verificar Deploy**
 ```bash
 # Após deploy, teste:
-curl https://seu-backend.onrender.com/docs
+curl https://projeto-ids-ips.onrender.com/docs
 ```
 
 **Resultado esperado:**
-- URL: `https://seu-backend.onrender.com`
+- URL: `https://projeto-ids-ips.onrender.com`
 - PostgreSQL: gerenciado pelo Render
 - Database migrations: `alembic upgrade head` rodado automaticamente
 
@@ -99,7 +99,7 @@ https://vercel.com/dashboard
 
 **Passo 3: Variáveis de Ambiente**
 ```
-VITE_API_URL=https://seu-backend.onrender.com
+VITE_API_URL=https://projeto-ids-ips.onrender.com
 ```
 
 **Passo 4: Deploy**
@@ -108,7 +108,7 @@ VITE_API_URL=https://seu-backend.onrender.com
 - Output: `.vite/dist`
 
 **Resultado esperado:**
-- URL: `https://seu-projeto.vercel.app`
+- URL: `https://projeto-ids-ips.vercel.app`
 - Acesso automático ao backend Render via CORS
 
 ---
@@ -126,8 +126,8 @@ VITE_API_URL=https://seu-backend.onrender.com
 # /home/jgd/projeto-ids-ips/.env.sniffer
 
 # Backend Cloud
-BACKEND_URL=https://seu-backend.onrender.com
-SENSOR_API_TOKEN=seu_token_super_seguro
+BACKEND_URL=https://projeto-ids-ips.onrender.com
+SENSOR_API_TOKEN=rnd_NI58G0zUFnPDd88wjSYPfCnCBfZO
 
 # Interfaces a monitorar (todas do PC)
 INTERFACES=eth0,eth1,eth2,wlan0

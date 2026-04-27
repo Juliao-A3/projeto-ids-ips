@@ -8,8 +8,13 @@
 
 ---
 
-## 🚀 ETAPA 1: PREPARAR BACKEND (10 min)
+## ✅ ETAPA 1: BACKEND JÁ PUBLICADO
 
+O backend já está no Render. Só confirme:
+
+- [ ] `https://seu-backend.onrender.com/health` responde 200
+- [ ] `https://seu-backend.onrender.com/docs` abre corretamente
+- [ ] `CORS_ALLOW_ORIGIN_REGEX` aceita `*.vercel.app`
 ### 1.1 Verificar `render.yaml`
 
 ```bash
@@ -55,57 +60,51 @@ docker compose up backend
 
 ---
 
-## 🚀 ETAPA 2: DEPLOY BACKEND NO RENDER (15 min)
+## ✅ ETAPA 2: FRONTEND JÁ PUBLICADO
 
-### 2.1 Acessar Render Dashboard
+O frontend já está na Vercel. Só confirme:
+
+- [ ] A URL pública carrega sem erro
+- [ ] O login abre o backend correto
+- [ ] `VITE_API_URL` aponta para o Render
+
+### 2.1 Acessar Vercel Dashboard
 
 ```
-https://dashboard.render.com
+https://vercel.com/dashboard
 ```
 
 - [ ] Login com conta GitHub
 
-### 2.2 Criar Blueprint
+### 2.2 Confirmar Project Settings
 
-- [ ] New → **Blueprint**
-- [ ] Conectar repositório GitHub `seu-usuario/projeto-ids-ips`
-- [ ] Selecionar branch `main`
+- [ ] Root Directory aponta para `frontend`
+- [ ] Framework Preset está em Vite
+- [ ] Build Command é `npm run build`
+- [ ] Output Directory é `dist`
 
-### 2.3 Configurar Variáveis de Ambiente
-
-No Render, após criar o blueprint, editar variáveis:
+### 2.3 Conferir Variável de Ambiente
 
 ```
-DATABASE_URL=postgres://...          # Auto-gerado pelo Render
-SECRET_KEY=gerador.onrender.com      # Copiar de exemplo
-CORS_ALLOW_ORIGIN_REGEX=.*vercel.app
-FRONTEND_ORIGINS=*.vercel.app
-SENSOR_API_TOKEN=seu_token_seguro_aleatorio_aqui_123456789
-ENVIRONMENT=production
-LOG_LEVEL=INFO
+VITE_API_URL=https://projeto-ids-ips.onrender.com
 ```
 
-### 2.4 Deploy
+### 2.4 Verificar Deploy
 
-- [ ] Clicar em **Deploy** ou **Redeploy**
-- Aguardar logs...
-- [ ] Verde = sucesso!
+- [ ] URL pública abre sem erro
+- [ ] Requisições no browser apontam para o backend do Render
 
-### 2.5 Testar Backend Online
+### 2.5 Testar Frontend Online
 
 ```bash
-# Substituir por sua URL
-BACKEND=https://seu-backend.onrender.com
-
-curl $BACKEND/health
-curl $BACKEND/docs
+curl https://projeto-ids-ips.vercel.app/ | head -20
 ```
 
-**✅ Resultado esperado:** HTTP 200 em `/health` e `/docs`
+**✅ Resultado esperado:** HTML com `<head>` e `<body>`
 
 ---
 
-## 🚀 ETAPA 3: PREPARAR FRONTEND (5 min)
+## 🚀 ETAPA 3: PREPARAR FRONTEND (se precisar corrigir)
 
 ### 3.1 Verificar `frontend/vite.config.ts`
 
@@ -144,7 +143,7 @@ git push origin main
 
 ---
 
-## 🚀 ETAPA 4: DEPLOY FRONTEND NO VERCEL (10 min)
+## 🚀 ETAPA 4: DEPLOY FRONTEND NO VERCEL (somente se houver ajuste)
 
 ### 4.1 Acessar Vercel Dashboard
 
@@ -201,8 +200,8 @@ nano .env.sniffer
 
 **Valores importantes:**
 ```ini
-BACKEND_URL=https://seu-backend.onrender.com
-SENSOR_API_TOKEN=seu_token_seguro_aleatorio_aqui_123456789
+BACKEND_URL=https://projeto-ids-ips.onrender.com
+SENSOR_API_TOKEN=rnd_NI58G0zUFnPDd88wjSYPfCnCBfZO
 INTERFACES=eth0,eth1,eth2,wlan0
 ZONE_MAP=eth0:wan,eth1:lan,eth2:lan,wlan0:wlan
 SENSOR_NAME=Sniffer-Local-PC-$(hostname -s)
