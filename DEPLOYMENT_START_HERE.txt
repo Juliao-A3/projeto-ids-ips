@@ -1,0 +1,217 @@
+╔════════════════════════════════════════════════════════════════════╗
+║         🚀 PLANO DE DEPLOYMENT - TUDO PRONTO! 🚀                    ║
+║             Backend Render + Frontend Vercel + Sniffer Local        ║
+╚════════════════════════════════════════════════════════════════════╝
+
+📊 O QUE FOI CRIADO HOJE:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✅ 4 Documentos de Deployment:
+   📄 DEPLOYMENT_SUMMARY.md
+   📄 DEPLOYMENT_STEP_BY_STEP.md
+   📄 DEPLOYMENT_CLOUD_PLAN.md
+   📄 DEPLOYMENT_DOCS_README.md
+
+✅ 2 Scripts de Automação:
+   🔧 check_before_deployment.sh     (validar antes)
+   🔧 validate_deployment.sh         (validar depois)
+
+✅ Arquuetura Documentada:
+   🏗️  Diagrama visual completo
+   🏗️  4 etapas principais
+   🏗️  Valores críticos
+   🏗️  Troubleshooting completo
+
+
+🎯 PRÓXIMAS AÇÕES - COMECE AQUI:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PASSO 1: Entender o Plano (5 min)
+  📖 Abrir: DEPLOYMENT_SUMMARY.md
+     ou https://seu-editor/DEPLOYMENT_SUMMARY.md
+
+PASSO 2: Validar Pré-Requisitos (2 min)
+  🔍 Execute no terminal:
+     bash check_before_deployment.sh
+
+PASSO 3: Se OK, Começar Deploy (60 min)
+  📋 Seguir: DEPLOYMENT_STEP_BY_STEP.md
+     Etapa 1: Backend Render (15 min)
+     Etapa 2: Deploy Backend (15 min)
+     Etapa 3: Frontend Vercel (10 min)
+     Etapa 4: Deploy Frontend (10 min)
+     Etapa 5: Sniffer Local (15 min)
+     Etapa 6: Validação (5 min)
+
+PASSO 4: Validar Tudo Online (5 min)
+  ✅ Execute no terminal:
+     bash validate_deployment.sh
+
+PASSO 5: Acessar Dashboard
+  🌐 Abrir navegador:
+     https://seu-projeto.vercel.app
+
+
+📈 ARQUITETURA FINAL:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+         INTERNET
+             │
+             ├─────→ Vercel CDN
+             │           │
+             │           v
+             │    🌐 Frontend (seu-projeto.vercel.app)
+             │           │
+             │           │ HTTPS + CORS
+             │           │
+             v           v
+         Render Cloud ← API Calls
+         ┌─────────────────────┐
+         │ Backend FastAPI     │
+         │ postgres://...      │
+         │ (seu-backend.onrender.com)
+         │                     │
+         │ /sniffer/events     │
+         │ /sniffer/status     │
+         │ /dashboard/*        │
+         └─────────────────────┘
+                 ▲
+                 │ HTTPS + Bearer Token
+                 │ Requisições a cada 10-30s
+                 │
+         🖥️ PC/VM LOCAL (Este PC)
+         ┌─────────────────────┐
+         │ Docker Sniffer      │
+         │ eth0 (WAN)          │
+         │ eth1 (LAN)          │
+         │ eth2 (LAN)          │
+         │ wlan0 (WLAN)        │
+         └─────────────────────┘
+
+
+🔑 VALORES CRÍTICOS A GUARDAR:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Após começar o deployment, anote estes valores:
+
+  Backend URL:      https://seu-backend.onrender.com
+  Frontend URL:     https://seu-projeto.vercel.app
+  Sniffer Token:    seu_token_super_seguro_aqui
+  Interfaces:       eth0,eth1,eth2,wlan0
+  Zones:            eth0:wan,eth1:lan,eth2:lan,wlan0:wlan
+
+
+✨ CHECKLIST DE PROGRESSO:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Durante o deployment:
+
+ [ ] Leitura de DEPLOYMENT_SUMMARY.md completada
+ [ ] check_before_deployment.sh passou (todos OK)
+ [ ] Backend preparado localmente
+ [ ] Backend deployed no Render (verde no dashboard)
+ [ ] Frontend preparado localmente
+ [ ] Frontend deployed no Vercel (URL ativa)
+ [ ] .env.sniffer criado com valores corretos
+ [ ] Docker Sniffer container rodando
+ [ ] Sniffer conectado ao backend (/sniffer/status 200 OK)
+ [ ] Frontend carrega sem erros
+ [ ] Fazer login funciona
+ [ ] Dashboard mostra interfaces do PC
+ [ ] Alertas chegando em tempo real
+ [ ] validate_deployment.sh passou (todos OK)
+
+
+⏱️  TIMELINE ESPERADO:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Leitura + Validação:        10 min
+  Backend prep + deploy:      30 min
+  Frontend prep + deploy:     20 min
+  Sniffer local:              15 min
+  Testes finais:              10 min
+  ─────────────────────────────────
+  TOTAL:                      ~85 min (1h 25min)
+
+
+📞 DOCUMENTOS DE REFERÊNCIA:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📄 DEPLOYMENT_DOCS_README.md
+   └─ Guia de navegação completo dos documentos
+
+📄 DEPLOYMENT_SUMMARY.md
+   └─ Sumário executivo (leia PRIMEIRO)
+
+📄 DEPLOYMENT_STEP_BY_STEP.md
+   └─ Passo-a-passo detalhado (SIGA para deployment)
+
+📄 DEPLOYMENT_CLOUD_PLAN.md
+   └─ Plano completo com todas as fases + troubleshooting
+
+🔧 check_before_deployment.sh
+   └─ Valida tudo antes de começar
+
+🔧 validate_deployment.sh
+   └─ Testa tudo após estar online
+
+
+⚠️  IMPORTANTE ANTES DE COMEÇAR:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CRIE CONTAS (se não tiver):
+  ✓ GitHub (gratuito) - https://github.com
+  ✓ Render (gratuito tier) - https://render.com
+  ✓ Vercel (gratuito tier) - https://vercel.com
+
+TENHA PRONTO:
+  ✓ Código no GitHub pushed (branch main)
+  ✓ Docker instalado no PC
+  ✓ Terminal bash (Linux/Mac ou WSL no Windows)
+
+
+❓ DÚVIDAS FREQUENTES:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+P: Por onde começo?
+R: Leia DEPLOYMENT_SUMMARY.md (5 min) e execute check_before_deployment.sh
+
+P: Quanto tempo leva?
+R: ~90 minutos. Deploy automático = mais rápido.
+
+P: Vai cobrar?
+R: Não. Render + Vercel têm tier gratuito.
+
+P: Sniffer precisa de outro PC?
+R: Não. Roda em Docker neste PC (localhost).
+
+P: E se der erro?
+R: Consulte seção "Troubleshooting" em DEPLOYMENT_STEP_BY_STEP.md
+
+P: Interfaces não aparecem?
+R: Ler DEPLOYMENT_CLOUD_PLAN.md → Troubleshooting
+
+
+🚀 READY TO GO!  ✨
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Seus documentos estão prontos em:
+  /home/jgd/projeto-ids-ips/
+
+Comece lendo:
+  DEPLOYMENT_SUMMARY.md
+
+Após ler:
+  bash check_before_deployment.sh
+
+Se tudo OK:
+  Siga as instruções em DEPLOYMENT_STEP_BY_STEP.md
+
+Boa sorte! 🚀
+
+
+═══════════════════════════════════════════════════════════════════════
+Última atualização: 2026-04-27
+Status: ✅ Tudo pronto
+Tempo de prep: 1-2 horas para deployment completo
+═══════════════════════════════════════════════════════════════════════
