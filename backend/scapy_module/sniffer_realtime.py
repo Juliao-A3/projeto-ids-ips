@@ -39,14 +39,16 @@ FLOW_ENDPOINT = (
 # Whitelist centralizada
 _whitelist_manager = get_whitelist()
 
-# 🔧 DEBUG: Desabilitar whitelist temporariamente para testar captura
-_WHITELIST_ENABLED = False  # Mudar para True depois
+# Controle por ambiente para evitar falso positivo em tráfego interno conhecido.
+_WHITELIST_ENABLED = os.getenv("WHITELIST_ENABLED", "1") == "1"
 
 def _should_ignore_flow(src_ip: str, dst_ip: str) -> bool:
     """Verifica se um fluxo deve ser ignorado por estar na whitelist."""
     if not _WHITELIST_ENABLED:
         return False  # DEBUG: Permitir tudo
-    return _whitelist_manager.is_ip_whitelisted(src_ip) or _whitelist_manager.is_ip_whitelisted(dst_ip)
+    # Ignora apenas tráfego totalmente interno/permitido.
+    # Se só uma ponta estiver whitelisted (ex.: host protegido), mantém deteção ativa.
+    return _whitelist_manager.is_ip_whitelisted(src_ip) and _whitelist_manager.is_ip_whitelisted(dst_ip)
 
 # Estado interno 
 _processes: dict[str, subprocess.Popen] = {}
@@ -61,18 +63,48 @@ contador_fluxos   = 0
 ataques_detetados = 0
 _start_time       = 0.0
 
-_SSH_BRUTE_WINDOW_S = 10.0
+_SSH_BRUTE_WINDOW_S = float(os.getenv("SSH_BRUTE_WINDOW_SECONDS", "120"))
 _FTP_BRUTE_WINDOW_S = 20.0
-_SSH_BRUTE_MIN_ATTEMPTS = 2
+_SSH_BRUTE_MIN_ATTEMPTS = max(1, int(os.getenv("SSH_BRUTE_MIN_ATTEMPTS", "2")))
 _FTP_BRUTE_MIN_ATTEMPTS = 3
 _ssh_attempts: dict[tuple[str, str, int], deque[float]] = defaultdict(deque)
 _ftp_attempts: dict[tuple[str, str, int], deque[float]] = defaultdict(deque)
+_noisy_label_attempts: dict[tuple[str, str], deque[float]] = defaultdict(deque)
 _ENABLE_HEURISTIC_ATTACK_OVERRIDE = os.getenv("ENABLE_HEURISTIC_ATTACK_OVERRIDE", "1") == "1"
+_ENABLE_SSH_FTP_HEURISTIC_OVERRIDE = os.getenv("ENABLE_SSH_FTP_HEURISTIC_OVERRIDE", "1") == "1"
+_ENABLE_WEB_HEURISTIC_OVERRIDE = os.getenv("ENABLE_WEB_HEURISTIC_OVERRIDE", "0") == "1"
 _web_attack_rules = WebAttackRulesEngine(_should_ignore_flow)
 _MIN_ATTACK_CONFIDENCE = float(os.getenv("ATTACK_MIN_CONFIDENCE", "0.82"))
 _MIN_INFILTRATION_CONFIDENCE = float(os.getenv("INFILTRATION_MIN_CONFIDENCE", "0.90"))
 _MIN_LOCAL_NOISE_CONFIDENCE = float(os.getenv("LOCAL_NOISE_MIN_CONFIDENCE", "0.93"))
 _LIKELY_NOISE_PORTS = {67, 68, 123, 137, 138, 1900, 5353, 5355}
+_SUPPRESS_GENERIC_HTTPS_ATTACKS = os.getenv("SUPPRESS_GENERIC_HTTPS_ATTACKS", "1") == "1"
+_SUPPRESS_LOCAL_CONTROL_PLANE = os.getenv("SUPPRESS_LOCAL_CONTROL_PLANE", "1") == "1"
+_SUPPRESS_DISCOVERY_NOISE = os.getenv("SUPPRESS_DISCOVERY_NOISE", "1") == "1"
+_NOISY_LABEL_WINDOW_S = float(os.getenv("NOISY_LABEL_WINDOW_SECONDS", "45"))
+_NOISY_LABEL_MIN_EVENTS = max(1, int(os.getenv("NOISY_LABEL_MIN_EVENTS", "3")))
+_NOISY_LABEL_MIN_CONFIDENCE = float(os.getenv("NOISY_LABEL_MIN_CONFIDENCE", "0.95"))
+_NOISY_ATTACK_LABELS = {
+    item.strip().lower()
+    for item in os.getenv(
+        "NOISY_ATTACK_LABELS",
+        "infilteration,infiltration,bot,brute force -web,brute force -xss,sql injection",
+    ).split(",")
+    if item.strip()
+}
+_LOCAL_CONTROL_PLANE_PORTS = {
+    int(item.strip())
+    for item in os.getenv("LOCAL_CONTROL_PLANE_PORTS", "8000,8080,8081,5173,4173").split(",")
+    if item.strip().isdigit()
+}
+_WEB_PORTS = {80, 443, 8080, 8443}
+_METADATA_SERVICE_IPS = {
+    ip.strip()
+    for ip in os.getenv("METADATA_SERVICE_IPS", "169.254.169.254").split(",")
+    if ip.strip()
+}
+_SUPPRESS_METADATA_SERVICE = os.getenv("SUPPRESS_METADATA_SERVICE", "1") == "1"
+_suppressed_noise_flows = 0
 
 
 def _safe_float(value, default=0.0):
@@ -88,6 +120,49 @@ def _safe_int(value, default=0):
         return int(float(value))
     except (TypeError, ValueError):
         return default
+
+
+def _duration_seconds(flow_dict: dict) -> float:
+    """
+    Normaliza flow_duration para segundos.
+    O exporter costuma enviar microsegundos em muitos ambientes.
+    """
+    raw = _safe_float(flow_dict.get("flow_duration", 0.0))
+    if raw <= 0:
+        return 0.0
+
+    # Heurística de unidade:
+    # valores muito altos para um único fluxo curto normalmente vêm em microssegundos.
+    if raw > 1000:
+        return raw / 1_000_000.0
+    return raw
+
+
+def _resolve_service_flow(flow_dict: dict, service_port: int, protocol_required: int = 6):
+    """
+    Normaliza direção para fluxos de serviço (ex.: SSH 22, FTP 21).
+    Retorna (attacker_ip, victim_ip) quando a porta de serviço aparece em qualquer lado.
+    """
+    protocol = _safe_int(flow_dict.get("protocol", 0))
+    if protocol != protocol_required:
+        return None
+
+    src_ip = str(flow_dict.get("src_ip", "")).strip()
+    dst_ip = str(flow_dict.get("dst_ip", "")).strip()
+    src_port = _safe_int(flow_dict.get("src_port", 0))
+    dst_port = _safe_int(flow_dict.get("dst_port", 0))
+
+    if dst_port == service_port and src_port != service_port:
+        return (src_ip, dst_ip)
+
+    if src_port == service_port and dst_port != service_port:
+        # Fluxo veio invertido: vítima no src, origem provável no dst.
+        return (dst_ip, src_ip)
+
+    if src_port == service_port and dst_port == service_port:
+        return (src_ip, dst_ip)
+
+    return None
 
 
 def _is_private_or_local_ip(ip_value: str) -> bool:
@@ -108,6 +183,101 @@ def _is_broadcast_ipv4(ip_value: str) -> bool:
     return ip_str.count(".") == 3 and ip_str.endswith(".255")
 
 
+def _is_generic_https_attack_noise(flow_dict: dict, resultado: dict) -> bool:
+    if not _SUPPRESS_GENERIC_HTTPS_ATTACKS:
+        return False
+
+    if not bool(resultado.get("is_attack", False)):
+        return False
+
+    label_norm = str(resultado.get("label_str", "")).strip().lower()
+    noisy_labels = (
+        "infilteration",
+        "infiltration",
+        "bot",
+        "brute force -web",
+        "brute force -xss",
+        "sql injection",
+    )
+    if not any(token in label_norm for token in noisy_labels):
+        return False
+
+    src_ip = str(flow_dict.get("src_ip", "")).strip()
+    dst_ip = str(flow_dict.get("dst_ip", "")).strip()
+    src_port = _safe_int(flow_dict.get("src_port", 0))
+    dst_port = _safe_int(flow_dict.get("dst_port", 0))
+    protocol = _safe_int(flow_dict.get("protocol", 0))
+    syn_cnt = _safe_float(flow_dict.get("syn_flag_cnt", 0.0))
+    rst_cnt = _safe_float(flow_dict.get("rst_flag_cnt", 0.0))
+    total_pkts = _safe_float(flow_dict.get("tot_fwd_pkts", 0.0)) + _safe_float(flow_dict.get("tot_bwd_pkts", 0.0))
+
+    # Foco em sessão TLS cliente-servidor "normal" (lado privado <-> lado público).
+    is_tls = (src_port == 443 or dst_port == 443) and protocol == 6
+    private_public_pair = _is_private_or_local_ip(src_ip) ^ _is_private_or_local_ip(dst_ip)
+    no_flood_signals = syn_cnt < 20 and rst_cnt < 5 and total_pkts < 5000
+
+    return bool(is_tls and private_public_pair and no_flood_signals)
+
+
+def _is_discovery_noise_flow(flow_dict: dict) -> bool:
+    src_ip = str(flow_dict.get("src_ip", "")).strip()
+    dst_ip = str(flow_dict.get("dst_ip", "")).strip()
+    src_port = _safe_int(flow_dict.get("src_port", 0))
+    dst_port = _safe_int(flow_dict.get("dst_port", 0))
+
+    return bool(
+        dst_ip.startswith("224.")
+        or dst_ip.startswith("239.")
+        or _is_broadcast_ipv4(dst_ip)
+        or src_port in _LIKELY_NOISE_PORTS
+        or dst_port in _LIKELY_NOISE_PORTS
+        or _is_private_or_local_ip(src_ip) and _is_private_or_local_ip(dst_ip) and dst_port in {53, 5353, 1900}
+    )
+
+
+def _is_local_control_plane_flow(flow_dict: dict) -> bool:
+    src_ip = str(flow_dict.get("src_ip", "")).strip()
+    dst_ip = str(flow_dict.get("dst_ip", "")).strip()
+    src_port = _safe_int(flow_dict.get("src_port", 0))
+    dst_port = _safe_int(flow_dict.get("dst_port", 0))
+
+    if src_port not in _LOCAL_CONTROL_PLANE_PORTS and dst_port not in _LOCAL_CONTROL_PLANE_PORTS:
+        return False
+
+    if not (_is_private_or_local_ip(src_ip) and _is_private_or_local_ip(dst_ip)):
+        return False
+
+    # Tráfego de dashboard/API local entre hosts privados tende a gerar ruído e falsos positivos.
+    return True
+
+
+def _is_metadata_service_flow(flow_dict: dict) -> bool:
+    if not _SUPPRESS_METADATA_SERVICE:
+        return False
+
+    src_ip = str(flow_dict.get("src_ip", "")).strip()
+    dst_ip = str(flow_dict.get("dst_ip", "")).strip()
+
+    if src_ip in _METADATA_SERVICE_IPS or dst_ip in _METADATA_SERVICE_IPS:
+        return True
+
+    # Link-local metadata services costumam aparecer sem muito contexto; não tratar como ataque.
+    return bool(
+        _is_private_or_local_ip(src_ip)
+        and dst_ip.startswith("169.254.")
+    )
+
+
+def _should_suppress_noise_flow(flow_dict: dict) -> bool:
+    if _is_metadata_service_flow(flow_dict):
+        return True
+    if _SUPPRESS_DISCOVERY_NOISE and _is_discovery_noise_flow(flow_dict):
+        return True
+    if _SUPPRESS_LOCAL_CONTROL_PLANE and _is_local_control_plane_flow(flow_dict):
+        return True
+    return False
+
+
 def _required_confidence_for_label(label_str: str) -> float:
     label_norm = str(label_str or "").strip().lower()
     if "infilteration" in label_norm or "infiltration" in label_norm:
@@ -121,6 +291,10 @@ def _should_downgrade_attack(flow_dict: dict, resultado: dict) -> bool:
 
     confidence = _safe_float(resultado.get("confidence", 0.0))
     label_str = str(resultado.get("label_str", ""))
+
+    if _is_generic_https_attack_noise(flow_dict, resultado):
+        return True
+
     required_conf = _required_confidence_for_label(label_str)
     if confidence < required_conf:
         return True
@@ -146,20 +320,102 @@ def _should_downgrade_attack(flow_dict: dict, resultado: dict) -> bool:
     ):
         return confidence < _MIN_LOCAL_NOISE_CONFIDENCE
 
+    if _is_generic_web_session_noise(flow_dict, resultado):
+        return True
+
+    if _is_metadata_service_flow(flow_dict):
+        return True
+
     return False
 
 
-def _is_ssh_bruteforce_candidate(flow_dict: dict) -> bool:
-    """Fluxo curto/repetitivo típico de tentativa de autenticação SSH falhada."""
+def _is_generic_web_session_noise(flow_dict: dict, resultado: dict) -> bool:
+    """Despromove Bot/labels web quando o fluxo parece apenas tráfego web normal."""
+    if not bool(resultado.get("is_attack", False)):
+        return False
+
+    label_norm = _normalize_label(resultado.get("label_str", ""))
+    if label_norm not in {"bot", "brute force -web", "brute force -xss", "sql injection"}:
+        return False
+
+    src_ip = str(flow_dict.get("src_ip", "")).strip()
+    dst_ip = str(flow_dict.get("dst_ip", "")).strip()
+    src_port = _safe_int(flow_dict.get("src_port", 0))
     dst_port = _safe_int(flow_dict.get("dst_port", 0))
     protocol = _safe_int(flow_dict.get("protocol", 0))
     syn_cnt = _safe_float(flow_dict.get("syn_flag_cnt", 0.0))
     rst_cnt = _safe_float(flow_dict.get("rst_flag_cnt", 0.0))
-    fwd_pkts = _safe_float(flow_dict.get("tot_fwd_pkts", 0.0))
-    bwd_pkts = _safe_float(flow_dict.get("tot_bwd_pkts", 0.0))
+    ack_cnt = _safe_float(flow_dict.get("ack_flag_cnt", 0.0))
+    psh_cnt = _safe_float(flow_dict.get("psh_flag_cnt", 0.0))
+    total_pkts = _safe_float(flow_dict.get("tot_fwd_pkts", 0.0)) + _safe_float(flow_dict.get("tot_bwd_pkts", 0.0))
+    flow_pkts_s = _safe_float(flow_dict.get("flow_pkts_s", 0.0))
     duration_s = _safe_float(flow_dict.get("flow_duration", 0.0))
 
-    if dst_port != 22 or protocol != 6:
+    is_web_session = protocol == 6 and (src_port in _WEB_PORTS or dst_port in _WEB_PORTS)
+    private_public_pair = _is_private_or_local_ip(src_ip) ^ _is_private_or_local_ip(dst_ip)
+    if not (is_web_session and private_public_pair):
+        return False
+
+    no_burst_signals = syn_cnt <= 2 and rst_cnt <= 2 and ack_cnt <= 20 and psh_cnt <= 10
+    modest_volume = total_pkts <= 120 and flow_pkts_s <= 10.0
+
+    if label_norm == "bot":
+        return bool(duration_s >= 15 and no_burst_signals and modest_volume)
+
+    return bool(duration_s >= 20 and no_burst_signals and modest_volume)
+
+
+def _normalize_label(value: str) -> str:
+    return str(value or "").strip().lower()
+
+
+def _is_noisy_label(label_norm: str) -> bool:
+    if label_norm in _NOISY_ATTACK_LABELS:
+        return True
+    return any(tag in label_norm for tag in _NOISY_ATTACK_LABELS)
+
+
+def _should_gate_noisy_attack(flow_dict: dict, resultado: dict) -> bool:
+    """
+    Evita marcar ataque em labels ruidosas com 1 evento isolado.
+    Mantém ataque imediato quando confiança for muito alta.
+    """
+    if not bool(resultado.get("is_attack", False)):
+        return False
+
+    label_norm = _normalize_label(resultado.get("label_str", ""))
+    if not _is_noisy_label(label_norm):
+        return False
+
+    confidence = _safe_float(resultado.get("confidence", 0.0))
+    if confidence >= _NOISY_LABEL_MIN_CONFIDENCE:
+        return False
+
+    src_ip = str(flow_dict.get("src_ip", "")).strip()
+    if not src_ip:
+        return True
+
+    now = time.time()
+    key = (src_ip, label_norm)
+    attempts = _noisy_label_attempts[key]
+    attempts.append(now)
+    cutoff = now - _NOISY_LABEL_WINDOW_S
+    while attempts and attempts[0] < cutoff:
+        attempts.popleft()
+
+    return len(attempts) < _NOISY_LABEL_MIN_EVENTS
+
+
+def _is_ssh_bruteforce_candidate(flow_dict: dict) -> bool:
+    """Fluxo curto/repetitivo típico de tentativa de autenticação SSH falhada."""
+    ssh_flow = _resolve_service_flow(flow_dict, service_port=22, protocol_required=6)
+    syn_cnt = _safe_float(flow_dict.get("syn_flag_cnt", 0.0))
+    rst_cnt = _safe_float(flow_dict.get("rst_flag_cnt", 0.0))
+    fwd_pkts = _safe_float(flow_dict.get("tot_fwd_pkts", 0.0))
+    bwd_pkts = _safe_float(flow_dict.get("tot_bwd_pkts", 0.0))
+    duration_s = _duration_seconds(flow_dict)
+
+    if ssh_flow is None:
         return False
 
     total_pkts = fwd_pkts + bwd_pkts
@@ -173,22 +429,22 @@ def _is_ssh_bruteforce_candidate(flow_dict: dict) -> bool:
 
 def _is_ssh_early_suspicious(flow_dict: dict) -> bool:
     """Heurística antecipada para não esperar vários fluxos antes de alertar."""
-    dst_port = _safe_int(flow_dict.get("dst_port", 0))
-    protocol = _safe_int(flow_dict.get("protocol", 0))
+    ssh_flow = _resolve_service_flow(flow_dict, service_port=22, protocol_required=6)
     syn_cnt = _safe_float(flow_dict.get("syn_flag_cnt", 0.0))
     rst_cnt = _safe_float(flow_dict.get("rst_flag_cnt", 0.0))
     ack_cnt = _safe_float(flow_dict.get("ack_flag_cnt", 0.0))
     fwd_pkts = _safe_float(flow_dict.get("tot_fwd_pkts", 0.0))
     bwd_pkts = _safe_float(flow_dict.get("tot_bwd_pkts", 0.0))
-    duration_s = _safe_float(flow_dict.get("flow_duration", 0.0))
+    duration_s = _duration_seconds(flow_dict)
 
-    if dst_port != 22 or protocol != 6:
+    if ssh_flow is None:
         return False
 
     total_pkts = fwd_pkts + bwd_pkts
 
-    # Primeiro estágio: conexão SSH curta com padrão de tentativa/falha.
-    if syn_cnt >= 3 and rst_cnt >= 1 and total_pkts <= 30:
+    # Primeiro estágio: padrão clássico de tentativa/falha em SSH.
+    # Não depende de duração porque flow_duration pode vir em unidade diferente.
+    if syn_cnt >= 2 and rst_cnt >= 1 and total_pkts <= 60:
         return True
 
     # Segundo estágio: bursts curtos de handshake sem troca normal de dados.
@@ -200,22 +456,26 @@ def _is_ssh_early_suspicious(flow_dict: dict) -> bool:
     if syn_cnt >= 2 and duration_s <= 20 and total_pkts <= 50:
         return True
 
+    # Quarto estágio: tentativa curta de autenticação em SSH,
+    # comum em brute force com cadência mais baixa (Hydra/Ncrack).
+    if syn_cnt >= 1 and duration_s <= 8 and total_pkts <= 20 and bwd_pkts <= 8:
+        return True
+
     return False
 
 
 def _is_ftp_early_suspicious(flow_dict: dict) -> bool:
     """Heurística antecipada para tentativas FTP repetidas com falha."""
-    dst_port = _safe_int(flow_dict.get("dst_port", 0))
-    protocol = _safe_int(flow_dict.get("protocol", 0))
+    ftp_flow = _resolve_service_flow(flow_dict, service_port=21, protocol_required=6)
     syn_cnt = _safe_float(flow_dict.get("syn_flag_cnt", 0.0))
     rst_cnt = _safe_float(flow_dict.get("rst_flag_cnt", 0.0))
     ack_cnt = _safe_float(flow_dict.get("ack_flag_cnt", 0.0))
     psh_cnt = _safe_float(flow_dict.get("psh_flag_cnt", 0.0))
     fwd_pkts = _safe_float(flow_dict.get("tot_fwd_pkts", 0.0))
     bwd_pkts = _safe_float(flow_dict.get("tot_bwd_pkts", 0.0))
-    duration_s = _safe_float(flow_dict.get("flow_duration", 0.0))
+    duration_s = _duration_seconds(flow_dict)
 
-    if dst_port != 21 or protocol != 6:
+    if ftp_flow is None:
         return False
 
     total_pkts = fwd_pkts + bwd_pkts
@@ -233,15 +493,14 @@ def _is_ftp_early_suspicious(flow_dict: dict) -> bool:
 
 def _is_ftp_bruteforce_candidate(flow_dict: dict) -> bool:
     """Candidato de tentativa FTP para contagem por frequência."""
-    dst_port = _safe_int(flow_dict.get("dst_port", 0))
-    protocol = _safe_int(flow_dict.get("protocol", 0))
+    ftp_flow = _resolve_service_flow(flow_dict, service_port=21, protocol_required=6)
     syn_cnt = _safe_float(flow_dict.get("syn_flag_cnt", 0.0))
     ack_cnt = _safe_float(flow_dict.get("ack_flag_cnt", 0.0))
     fwd_pkts = _safe_float(flow_dict.get("tot_fwd_pkts", 0.0))
     bwd_pkts = _safe_float(flow_dict.get("tot_bwd_pkts", 0.0))
-    duration_s = _safe_float(flow_dict.get("flow_duration", 0.0))
+    duration_s = _duration_seconds(flow_dict)
 
-    if dst_port != 21 or protocol != 6:
+    if ftp_flow is None:
         return False
 
     total_pkts = fwd_pkts + bwd_pkts
@@ -262,15 +521,20 @@ def _update_ssh_bruteforce_state(flow_dict: dict) -> int:
     if _should_ignore_flow(src_ip, dst_ip):
         return 0
     
-    dst_port = _safe_int(flow_dict.get("dst_port", 0))
-    protocol = _safe_int(flow_dict.get("protocol", 0))
+    service_flow = _resolve_service_flow(flow_dict, service_port=22, protocol_required=6)
 
-    # Conta toda conexão SSH/TCP para detectar brute force por frequência,
-    # mesmo quando flags variam entre tentativas.
-    if not (dst_port == 22 and protocol == 6):
+    # Conta conexões SSH/TCP para detectar brute force por frequência,
+    # mesmo quando o exporter inverte src/dst no fluxo.
+    if service_flow is None:
         return 0
 
-    key = (src_ip, dst_ip, dst_port)
+    total_pkts = _safe_float(flow_dict.get("tot_fwd_pkts", 0.0)) + _safe_float(flow_dict.get("tot_bwd_pkts", 0.0))
+    duration_s = _duration_seconds(flow_dict)
+    if total_pkts > 300 and duration_s > 120:
+        return 0
+
+    attacker_ip, victim_ip = service_flow
+    key = (attacker_ip, victim_ip, 22)
 
     now = time.time()
     attempts = _ssh_attempts[key]
@@ -291,17 +555,14 @@ def _update_ftp_bruteforce_state(flow_dict: dict) -> int:
     if _should_ignore_flow(src_ip, dst_ip):
         return 0
     
-    dst_port = _safe_int(flow_dict.get("dst_port", 0))
-    protocol = _safe_int(flow_dict.get("protocol", 0))
+    service_flow = _resolve_service_flow(flow_dict, service_port=21, protocol_required=6)
 
     # Conta apenas tentativas FTP candidatas, evitando sessões legítimas longas.
-    if not (dst_port == 21 and protocol == 6 and _is_ftp_bruteforce_candidate(flow_dict)):
+    if not (service_flow is not None and _is_ftp_bruteforce_candidate(flow_dict)):
         return 0
 
-    src_ip = str(flow_dict.get("src_ip", ""))
-    dst_ip = str(flow_dict.get("dst_ip", ""))
-    dst_port = _safe_int(flow_dict.get("dst_port", 21))
-    key = (src_ip, dst_ip, dst_port)
+    attacker_ip, victim_ip = service_flow
+    key = (attacker_ip, victim_ip, 21)
 
     now = time.time()
     attempts = _ftp_attempts[key]
@@ -407,40 +668,56 @@ async def processar_fluxo(flow_dict: dict, sensor_interface: str | None = None):
     Chamado pelo FastAPI quando o cicflowmeter faz POST de um fluxo.
     Classifica e envia para o callback (WebSocket).
     """
-    global contador_fluxos, ataques_detetados
+    global contador_fluxos, ataques_detetados, _suppressed_noise_flows
 
     try:
+        if _should_suppress_noise_flow(flow_dict):
+            _suppressed_noise_flows += 1
+            if _suppressed_noise_flows % 50 == 0:
+                print(
+                    f"[Sniffer] Fluxos suprimidos por ruído local/discovery: {_suppressed_noise_flows}",
+                )
+            return None
+
         features  = extrair_features(flow_dict)
         resultado = predict_flow(features)
 
         # Por padrão, usa somente o resultado do modelo.
-        # Para reativar override heurístico: ENABLE_HEURISTIC_ATTACK_OVERRIDE=1
-        if _ENABLE_HEURISTIC_ATTACK_OVERRIDE and not resultado.get("is_attack", False):
-            ssh_attempt_count = _update_ssh_bruteforce_state(flow_dict)
-            ftp_attempt_count = _update_ftp_bruteforce_state(flow_dict)
-            web_label, web_confidence = _web_attack_rules.detect(flow_dict)
-            if _is_ssh_early_suspicious(flow_dict):
+        # Override global opcional + chaves granulares para controlar falso positivo web.
+        global_override_enabled = _ENABLE_HEURISTIC_ATTACK_OVERRIDE
+        ssh_ftp_override_enabled = _ENABLE_SSH_FTP_HEURISTIC_OVERRIDE or global_override_enabled
+        web_override_enabled = _ENABLE_WEB_HEURISTIC_OVERRIDE or global_override_enabled
+
+        if (ssh_ftp_override_enabled or web_override_enabled) and not resultado.get("is_attack", False):
+            ssh_attempt_count = _update_ssh_bruteforce_state(flow_dict) if ssh_ftp_override_enabled else 0
+            ftp_attempt_count = _update_ftp_bruteforce_state(flow_dict) if ssh_ftp_override_enabled else 0
+            web_label, web_confidence = _web_attack_rules.detect(flow_dict) if web_override_enabled else (None, 0.0)
+            if ssh_ftp_override_enabled and _is_ssh_early_suspicious(flow_dict):
                 resultado["is_attack"] = True
                 resultado["label_str"] = "SSH-Bruteforce"
                 resultado["confidence"] = max(float(resultado.get("confidence", 0.0)), 0.89)
-            elif ssh_attempt_count >= _SSH_BRUTE_MIN_ATTEMPTS:
+            elif ssh_ftp_override_enabled and ssh_attempt_count >= _SSH_BRUTE_MIN_ATTEMPTS:
                 resultado["is_attack"] = True
                 resultado["label_str"] = "SSH-Bruteforce"
                 resultado["confidence"] = max(float(resultado.get("confidence", 0.0)), 0.92)
-            elif _is_ftp_early_suspicious(flow_dict):
+            elif ssh_ftp_override_enabled and _is_ftp_early_suspicious(flow_dict):
                 resultado["is_attack"] = True
                 resultado["label_str"] = "FTP-BruteForce"
                 resultado["confidence"] = max(float(resultado.get("confidence", 0.0)), 0.89)
-            elif ftp_attempt_count >= _FTP_BRUTE_MIN_ATTEMPTS:
+            elif ssh_ftp_override_enabled and ftp_attempt_count >= _FTP_BRUTE_MIN_ATTEMPTS:
                 resultado["is_attack"] = True
                 resultado["label_str"] = "FTP-BruteForce"
                 resultado["confidence"] = max(float(resultado.get("confidence", 0.0)), 0.92)
-            elif web_label is not None:
+            elif web_override_enabled and web_label is not None:
                 resultado["is_attack"] = True
                 resultado["label_str"] = web_label
                 resultado["confidence"] = max(float(resultado.get("confidence", 0.0)), web_confidence)
 
         if _should_downgrade_attack(flow_dict, resultado):
+            resultado["is_attack"] = False
+            resultado["label_str"] = "Benign"
+
+        if _should_gate_noisy_attack(flow_dict, resultado):
             resultado["is_attack"] = False
             resultado["label_str"] = "Benign"
 

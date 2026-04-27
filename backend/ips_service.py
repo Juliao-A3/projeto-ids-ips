@@ -3,6 +3,7 @@ import os
 import subprocess
 import threading
 import time
+import shutil
 from collections import defaultdict, deque
 from datetime import datetime
 from typing import Callable, Optional
@@ -22,6 +23,7 @@ class IPSService:
         self._malicious_counts: dict[str, int] = {}
         self._malicious_timestamps: dict[str, deque[float]] = defaultdict(deque)
         self._blocked_ips: set[str] = set()
+        self._firewall_cmd = self._detect_firewall_cmd()
 
     def iniciar(self) -> None:
         self.running = True
@@ -43,8 +45,15 @@ class IPSService:
         try:
             session = next(session_factory())
             rows = session.query(IpsBloqueados).all()
+            blocked_from_db = {str(r.ip_bloqueado).strip() for r in rows if r.ip_bloqueado}
             with self._lock:
-                self._blocked_ips = {str(r.ip_bloqueado).strip() for r in rows if r.ip_bloqueado}
+                self._blocked_ips = blocked_from_db
+
+            # Reaplica no sistema para evitar estado "bloqueado no banco" sem regra ativa no kernel.
+            if os.getenv("IPS_REAPPLY_DB_BLOCKS", "1") == "1":
+                for ip in blocked_from_db:
+                    if ip:
+                        self._block_ip_system(ip)
         except Exception as exc:
             print(f"[IPS] Erro ao sincronizar IPs bloqueados do banco: {exc}")
         finally:
@@ -65,6 +74,12 @@ class IPSService:
             return True
         except ValueError:
             return False
+
+    def _detect_firewall_cmd(self) -> Optional[str]:
+        for candidate in ("iptables", "iptables-nft", "iptables-legacy"):
+            if shutil.which(candidate):
+                return candidate
+        return None
 
     def register_malicious_flow(
         self,
@@ -99,11 +114,14 @@ class IPSService:
             self._malicious_counts[ip] = current
 
             if ip in self._blocked_ips:
+                # Garante regra ativa no sistema mesmo quando o IP já estava marcado em memória.
+                blocked_system = self._block_ip_system(ip)
                 return {
                     "blocked": False,
                     "already_blocked": True,
                     "ip": ip,
                     "count": current,
+                    "blocked_system": blocked_system,
                 }
 
             if current < self.threshold:
@@ -177,11 +195,17 @@ class IPSService:
             print(f"[IPS] Bloqueio de sistema indisponível neste SO para {ip}.")
             return False
 
+        firewall_cmd = self._firewall_cmd or self._detect_firewall_cmd()
+        if not firewall_cmd:
+            print(f"[IPS] Nenhum comando de firewall encontrado; IP {ip} ficou apenas bloqueado na aplicação/banco.")
+            return False
+        self._firewall_cmd = firewall_cmd
+
         rules = [
-            ["iptables", "-C", "INPUT", "-s", ip, "-j", "DROP"],
-            ["iptables", "-I", "INPUT", "-s", ip, "-j", "DROP"],
-            ["iptables", "-C", "OUTPUT", "-d", ip, "-j", "DROP"],
-            ["iptables", "-I", "OUTPUT", "-d", ip, "-j", "DROP"],
+            [firewall_cmd, "-C", "INPUT", "-s", ip, "-j", "DROP"],
+            [firewall_cmd, "-I", "INPUT", "-s", ip, "-j", "DROP"],
+            [firewall_cmd, "-C", "OUTPUT", "-d", ip, "-j", "DROP"],
+            [firewall_cmd, "-I", "OUTPUT", "-d", ip, "-j", "DROP"],
         ]
 
         try:
@@ -196,7 +220,7 @@ class IPSService:
             print(f"[IPS] IP bloqueado no sistema: {ip} em {datetime.now().isoformat()}")
             return True
         except FileNotFoundError:
-            print("[IPS] iptables não encontrado; bloqueio aplicado apenas no banco/memória.")
+            print(f"[IPS] {firewall_cmd} não encontrado; bloqueio aplicado apenas no banco/memória para {ip}.")
             return False
         except Exception as exc:
             print(f"[IPS] Falha ao aplicar iptables para {ip}: {exc}")
@@ -208,11 +232,16 @@ class IPSService:
             print(f"[IPS] Desbloqueio de sistema indisponível neste SO para {ip}.")
             return False
 
+        firewall_cmd = self._firewall_cmd or self._detect_firewall_cmd()
+        if not firewall_cmd:
+            print(f"[IPS] Nenhum comando de firewall encontrado; IP {ip} foi removido só da aplicação/banco.")
+            return False
+
         deleted_any = False
         try:
             while True:
                 chk = subprocess.run(
-                    ["iptables", "-C", "INPUT", "-s", ip, "-j", "DROP"],
+                    [firewall_cmd, "-C", "INPUT", "-s", ip, "-j", "DROP"],
                     capture_output=True,
                     text=True,
                     check=False,
@@ -220,7 +249,7 @@ class IPSService:
                 if chk.returncode != 0:
                     break
                 subprocess.run(
-                    ["iptables", "-D", "INPUT", "-s", ip, "-j", "DROP"],
+                    [firewall_cmd, "-D", "INPUT", "-s", ip, "-j", "DROP"],
                     capture_output=True,
                     text=True,
                     check=False,
@@ -229,7 +258,7 @@ class IPSService:
 
             while True:
                 chk = subprocess.run(
-                    ["iptables", "-C", "OUTPUT", "-d", ip, "-j", "DROP"],
+                    [firewall_cmd, "-C", "OUTPUT", "-d", ip, "-j", "DROP"],
                     capture_output=True,
                     text=True,
                     check=False,
@@ -237,7 +266,7 @@ class IPSService:
                 if chk.returncode != 0:
                     break
                 subprocess.run(
-                    ["iptables", "-D", "OUTPUT", "-d", ip, "-j", "DROP"],
+                    [firewall_cmd, "-D", "OUTPUT", "-d", ip, "-j", "DROP"],
                     capture_output=True,
                     text=True,
                     check=False,
@@ -247,7 +276,7 @@ class IPSService:
             print(f"[IPS] IP desbloqueado no sistema: {ip} em {datetime.now().isoformat()}")
             return deleted_any
         except FileNotFoundError:
-            print("[IPS] iptables não encontrado; desbloqueio aplicado apenas em memória/banco.")
+            print(f"[IPS] {firewall_cmd} não encontrado; desbloqueio aplicado apenas em memória/banco para {ip}.")
             return False
         except Exception as exc:
             print(f"[IPS] Falha ao remover regras iptables para {ip}: {exc}")

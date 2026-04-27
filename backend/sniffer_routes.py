@@ -531,6 +531,9 @@ async def ativar_modelo(
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
+_flow_input_suppressed_count = 0
+_require_sniffer_running_for_input = os.getenv("REQUIRE_SNIFFER_RUNNING_FOR_FLOW_INPUT", "1") == "1"
+
 @sniffer_router.post("/flow-input")
 async def receber_fluxo(request: Request):
     """
@@ -538,10 +541,30 @@ async def receber_fluxo(request: Request):
     Classifica e transmite pelo WebSocket.
     """
     try:
+        if _require_sniffer_running_for_input:
+            state = _sniffer_estado()
+            if not state.get("rodando", False):
+                return JSONResponse(
+                    {
+                        "status": "ignored",
+                        "reason": "sniffer_not_running",
+                    },
+                    status_code=202,
+                )
+
         flow_dict = await request.json()
-        print(f"[flow-input] Recebido fluxo: {flow_dict.get('src_ip')}:{flow_dict.get('src_port')} → {flow_dict.get('dst_ip')}:{flow_dict.get('dst_port')}")
         dados = await _sniffer_processar(flow_dict)
-        print(f"[flow-input] processar_fluxo retornou: {type(dados)}")
+        if isinstance(dados, dict):
+            print(
+                f"[flow-input] Fluxo processado: {dados.get('src_ip')}:{dados.get('src_port')} → {dados.get('dst_ip')}:{dados.get('dst_port')} | attack={dados.get('is_attack')}",
+            )
+        else:
+            global _flow_input_suppressed_count
+            _flow_input_suppressed_count += 1
+            if _flow_input_suppressed_count % 100 == 0:
+                print(
+                    f"[flow-input] Fluxos suprimidos (ruído local/discovery): {_flow_input_suppressed_count}",
+                )
 
         # Fallback de entrega: garante histórico de logs no /sniffer/status
         # mesmo quando o callback em tempo real falha.

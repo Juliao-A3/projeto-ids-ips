@@ -43,6 +43,7 @@ except Exception:
         sniffer_router = None
         SNIFFER_AVAILABLE = False
 from backend.ai_routes import ai_router
+from backend.agent_routes import router as agent_router
 from backend.auth_routes import auth_router
 from backend.dependencies import get_session
 from backend.estatisticas_routes import estatisticas_router
@@ -88,6 +89,7 @@ app.include_router(auth_router)
 app.include_router(monitor_router)
 app.include_router(service_router)
 app.include_router(ai_router)
+app.include_router(agent_router)
 app.include_router(notification_router)
 app.include_router(network_router)
 app.include_router(reports_router)

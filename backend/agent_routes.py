@@ -35,6 +35,26 @@ def verificar_token(x_agent_token: str = Header(...)):
     return x_agent_token
 
 
+@router.get("/bloqueios")
+async def listar_bloqueios(
+    db: Session = Depends(get_db),
+    token: str = Depends(verificar_token),
+):
+    """Devolve o estado atual para o agente local aplicar os bloqueios na máquina protegida."""
+    _ = token
+    rows = db.query(IpsBloqueados).order_by(IpsBloqueados.bloqueado_em.desc()).all()
+    return [
+        {
+            "id": row.id,
+            "ip_bloqueado": row.ip_bloqueado,
+            "motivo": row.motivo,
+            "bloqueado_em": row.bloqueado_em.isoformat() if row.bloqueado_em else None,
+        }
+        for row in rows
+        if row.ip_bloqueado
+    ]
+
+
 # ─── Endpoint principal ──────────────────────────────────────────────
 @router.post("/alerta")
 async def receber_alerta_agente(
