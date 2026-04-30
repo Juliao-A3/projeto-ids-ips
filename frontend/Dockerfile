@@ -5,6 +5,9 @@ WORKDIR /app
 ARG VITE_API_URL
 ENV VITE_API_URL=${VITE_API_URL}
 
+# Avoid JS OOM during build on low-memory hosts by limiting V8 heap
+ENV NODE_OPTIONS=--max-old-space-size=512
+
 COPY package.json package-lock.json* ./
 RUN npm ci
 
