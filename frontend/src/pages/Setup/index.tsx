@@ -8,6 +8,7 @@ import {
 } from "./styles";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
+import { api } from "../../services/api";
 
 type FormData = {
   name: string;
@@ -23,17 +24,44 @@ export default function Setup() {
 
   const { register, handleSubmit, watch, formState: { errors } } = useForm<FormData>();
   const navigate = useNavigate();
-  useAuth();
+  const { setUser } = useAuth();
 
-    const onSubmit = async () => {
+  const onSubmit = async (data: FormData) => {
     setLoading(true);
     try {
+      const response = await api.post("/auth/register", {
+        nome: data.name,
+        email: data.email,
+        senha: data.password,
+      });
+
+      localStorage.setItem("access_token", response.data.access_token);
+      localStorage.setItem("refresh_token", response.data.refresh_token);
+
+      const userData = response.data.user;
+      localStorage.setItem("user_name", userData.name);
+      localStorage.setItem("user_role", userData.role.toLowerCase());
+
+      const initials = userData.name
+        .trim()
+        .split(/\s+/)
+        .filter((w: string) => w.length > 0)
+        .map((w: string) => w[0])
+        .join("")
+        .toUpperCase()
+        .slice(0, 2) || "U";
+
+      setUser({
+        name: userData.name,
+        role: userData.role.toLowerCase(),
+        initials,
+      });
 
       // Mostra mensagem de sucesso
       alert("Conta criada com sucesso! Faça login para continuar.");
 
-      // Redireciona para o login
-      navigate("/login", { replace: true });
+      // Redireciona para a app já autenticada
+      navigate("/", { replace: true });
 
     } catch (err: unknown) {
       if ((err as any)?.response?.data?.detail) alert((err as any).response.data.detail);
