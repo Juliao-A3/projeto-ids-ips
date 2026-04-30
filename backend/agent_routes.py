@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
 
-from backend.database import get_db
+from backend.dependencies import get_session
 from backend.models import Alerta, IpsBloqueados
 
 router = APIRouter(prefix="/api/agent", tags=["Agente"])
@@ -37,7 +37,7 @@ def verificar_token(x_agent_token: str = Header(...)):
 
 @router.get("/bloqueios")
 async def listar_bloqueios(
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_session),
     token: str = Depends(verificar_token),
 ):
     """Devolve o estado atual para o agente local aplicar os bloqueios na máquina protegida."""
@@ -59,7 +59,7 @@ async def listar_bloqueios(
 @router.post("/alerta")
 async def receber_alerta_agente(
     alerta: AlertaAgente,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_session),
     token: str = Depends(verificar_token)
 ):
     novo_alerta = Alerta(
