@@ -5,6 +5,9 @@ WORKDIR /app
 ARG VITE_API_URL
 ENV VITE_API_URL=${VITE_API_URL}
 
+# Keep the build within the memory budget of small VPS instances
+ENV NODE_OPTIONS=--max-old-space-size=384
+
 COPY package.json package-lock.json* ./
 RUN npm ci
 

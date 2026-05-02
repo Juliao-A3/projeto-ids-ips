@@ -4,6 +4,7 @@ from datetime import datetime
 import threading
 import sys
 import os
+import socket
 import shutil
 import json
 from collections import defaultdict, deque
@@ -14,7 +15,7 @@ import psutil
 
 sys.path.insert(0, str(Path(__file__).parent))
 from scapy_module.sniffer_realtime import processar_fluxo as _sniffer_processar
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException, Request
 from typing import Optional
 from pydantic import BaseModel
 
@@ -44,7 +45,74 @@ _contagem_ips: defaultdict[str, int] = defaultdict(int)
 _ultimos_pacotes: deque[dict] = deque(maxlen=50)
 _stats_lock = threading.Lock()
 _ips_instance = IPSService(threshold=5)
+
+
+def _tem_permissao_captura_linux() -> bool:
+    """Valida se o processo consegue abrir socket cru para captura no Linux."""
+    if not sys.platform.startswith("linux"):
+        return True
+
+    try:
+        teste = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.ntohs(3))
+        teste.close()
+        return True
+    except PermissionError:
+        return False
+    except OSError:
+        return False
+
+
+def _interface_tem_ipv4_util(nome: str) -> bool:
+    """Retorna True quando a interface tem IPv4 válido para captura."""
+    try:
+        for addr in psutil.net_if_addrs().get(nome, []):
+            if addr.family == socket.AF_INET and addr.address and addr.address != "0.0.0.0":
+                return True
+    except Exception:
+        return False
+    return False
+
+
+def _interface_e_virtual(nome: str) -> bool:
+    """Detecta interfaces virtuais comuns que não devem aparecer como captura principal."""
+    nome = str(nome).strip().lower()
+    return nome.startswith(("br-", "docker", "veth", "virbr", "cni", "tun", "tap", "zt"))
+
+# ── Inicializar cache com interfaces locais disponíveis
+def _inicializar_cache_interfaces():
+    """Popula cache com interfaces ativas do sistema."""
+    global _sniffer_interfaces_cache
+    try:
+        stats = psutil.net_if_stats()
+        addrs = psutil.net_if_addrs()
+        
+        candidatas: list[str] = []
+        for nome, stat in stats.items():
+            if not stat.isup:
+                continue
+            if nome == "lo" or nome.lower().startswith("loopback"):
+                continue
+            if _interface_e_virtual(nome):
+                continue
+            if not addrs.get(nome):
+                continue
+            if not _interface_tem_ipv4_util(nome):
+                continue
+            candidatas.append(nome)
+        
+        if candidatas:
+            _sniffer_interfaces_cache = candidatas
+            print(f"[Sniffer Init] Interfaces carregadas do sistema: {_sniffer_interfaces_cache}", flush=True)
+        else:
+            # Fallback para interfaces normais
+            _sniffer_interfaces_cache = [nome for nome in stats.keys() if nome != "lo"]
+            print(f"[Sniffer Init] Interfaces fallback: {_sniffer_interfaces_cache}", flush=True)
+    except Exception as e:
+        print(f"[Sniffer Init] Erro ao inicializar interfaces: {e}", flush=True)
+        _sniffer_interfaces_cache = ["eth0"]  # Default seguro
+
 _sniffer_interfaces_cache: list[str] = []  # Cache das interfaces registradas
+_inicializar_cache_interfaces()  # Inicializar ao importar
 
 # ── Event loop dedicado 
 _loop: Optional[asyncio.AbstractEventLoop] = None
@@ -59,26 +127,43 @@ def _get_loop():
 
 def _listar_interfaces_ativas() -> list[str]:
     stats = psutil.net_if_stats()
-    addrs = psutil.net_if_addrs()
 
+    # Primeira passagem: interfaces com IPv4 válido
     candidatas: list[str] = []
     for nome, stat in stats.items():
         if not stat.isup:
             continue
         if nome == "lo" or nome.lower().startswith("loopback"):
             continue
-        if not addrs.get(nome):
+        if not _interface_tem_ipv4_util(nome):
             continue
         candidatas.append(nome)
 
     if candidatas:
+        print(f"[Interface] Interfaces com IPv4 válido encontradas: {candidatas}", flush=True)
         return candidatas
 
-    fallback = [nome for nome, stat in stats.items() if stat.isup and nome != "lo"]
+    # Fallback: interfaces UP com endereço, mesmo que IPv6 ou 0.0.0.0
+    fallback = []
+    for nome, stat in stats.items():
+        if not stat.isup:
+            continue
+        if nome == "lo" or nome.lower().startswith("loopback"):
+            continue
+        if _interface_e_virtual(nome):
+            continue
+        addrs = psutil.net_if_addrs().get(nome, [])
+        if addrs:  # Tem pelo menos um endereço
+            fallback.append(nome)
+
     if fallback:
+        print(f"[Interface] Fallback para interfaces com endereço: {fallback}", flush=True)
         return fallback
 
-    return [nome for nome in stats.keys() if nome != "lo"] or list(stats.keys())
+    # Último fallback: qualquer interface UP
+    last_resort = [nome for nome, stat in stats.items() if stat.isup and nome != "lo"]
+    print(f"[Interface] Último fallback - interfaces UP: {last_resort}", flush=True)
+    return last_resort or list(stats.keys())
 
 
 def _resolver_interfaces_para_sniffer(interface_final: str, interfaces: list[str]) -> list[str]:
@@ -91,7 +176,7 @@ def _resolver_interfaces_para_sniffer(interface_final: str, interfaces: list[str
     if interface_final:
         candidatas.extend([parte.strip() for parte in str(interface_final).split(",") if parte.strip()])
 
-    validas = [iface for iface in candidatas if iface in disponiveis_set]
+    validas = [iface for iface in candidatas if iface in disponiveis_set and _interface_tem_ipv4_util(iface)]
     if validas:
         return list(dict.fromkeys(validas))
 
@@ -323,17 +408,24 @@ async def start_sniffer(
     if est.get('rodando'):
         raise HTTPException(status_code=400, detail="Sniffer já está a correr.")
 
-    if sys.platform.startswith("linux") and os.geteuid() != 0:
+    if sys.platform.startswith("linux") and not _tem_permissao_captura_linux():
         raise HTTPException(
             status_code=403,
             detail=(
                 "Permissão insuficiente para captura de pacotes no Linux. "
-                "Execute com sudo ou conceda CAP_NET_RAW e CAP_NET_ADMIN ao Python do .venv."
+                "Execute uma vez com `sudo setcap cap_net_raw,cap_net_admin+eip .venv/bin/python` "
+                "ou inicie a API com sudo."
             ),
         )
 
     net_config      = _ler_network_config()
     interface_final = dados.interface
+    
+    # Permitir forcamento via variável de ambiente
+    force_iface = os.getenv("SNIFFER_FORCE_INTERFACE", "").strip()
+    if force_iface:
+        interface_final = force_iface
+        print(f"[Sniffer] Interface forcada via SNIFFER_FORCE_INTERFACE: {force_iface}", flush=True)
 
     if net_config:
         if not interface_final and net_config.capture_interface:
@@ -439,17 +531,18 @@ async def get_status(
 
 
 @sniffer_router.get("/interfaces")
-async def get_sniffer_interfaces(
-    usuario = Depends(require_role(["admin", "analista", "operador"]))
-):
+async def get_sniffer_interfaces():
     """
     Retorna as interfaces que o sniffer está monitorando.
-    Essas interfaces são registradas quando o sniffer se conecta via /sniffer/register
+    Essas interfaces são registradas quando o sniffer se conecta via /sniffer/register.
+    Se o cache estiver vazio, retorna as interfaces ativas do sistema.
+    Sem autenticação porque é apenas informação de leitura.
     """
+    interfaces = _sniffer_interfaces_cache or _listar_interfaces_ativas()
     return {
-        "monitored_interfaces": _sniffer_interfaces_cache,
-        "count": len(_sniffer_interfaces_cache),
-        "status": "active" if _sniffer_interfaces_cache else "no_interfaces"
+        "monitored_interfaces": interfaces,
+        "count": len(interfaces),
+        "status": "active" if interfaces else "no_interfaces"
     }
 
 
@@ -569,7 +662,6 @@ async def ativar_modelo(
     }
 # endpoint que recebe os fluxos do cicflowmeter
 
-from fastapi import Request
 from fastapi.responses import JSONResponse
 
 _flow_input_suppressed_count = 0

@@ -75,7 +75,7 @@ _env_origins = os.getenv("FRONTEND_ORIGINS", "")
 _env_origins_list = [o.strip() for o in _env_origins.split(",") if o.strip()]
 # Mantem as origens locais padrao sempre liberadas em desenvolvimento.
 _allowed_origins = list(dict.fromkeys(_default_origins + _env_origins_list))
-_allowed_origin_regex = os.getenv("CORS_ALLOW_ORIGIN_REGEX") or None
+_allowed_origin_regex = os.getenv("CORS_ALLOW_ORIGIN_REGEX") or r"^http://(localhost|127\.0\.0\.1|192\.168\.[0-9]{1,3}\.[0-9]{1,3})(:[0-9]{2,5})?$"
 
 app.add_middleware(CORSMiddleware,
     allow_origins=_allowed_origins,

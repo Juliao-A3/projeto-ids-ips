@@ -11,8 +11,12 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY backend/requirements.txt backend/requirements.txt
-RUN python -m pip install --upgrade pip \
-    && pip install -r backend/requirements.txt
+RUN python -m pip install --upgrade pip==24.0 \
+    && for attempt in 1 2 3 4 5; do \
+        pip install --retries 20 --timeout 120 --progress-bar off -r backend/requirements.txt && break; \
+        echo "pip install falhou (tentativa ${attempt}/5), tentando novamente..."; \
+        if [ "$attempt" -eq 5 ]; then exit 1; fi; \
+      done
 
 COPY backend backend
 COPY estudo estudo
