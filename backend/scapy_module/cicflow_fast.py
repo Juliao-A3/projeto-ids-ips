@@ -133,14 +133,60 @@ def _create_sniffer_without_bpf(args):
 
     sniffer = AsyncSniffer(
         iface=args.interface,
-        filter="ip and (tcp or udp)",
+        filter="",  # Capture ALL traffic to test if filter was blocking
         prn=_safe_packet_handler,
         store=False,
     )
+    print(f"[cicflow_fast] AsyncSniffer criado: iface={args.interface}, filter='(nenhum)'", flush=True)
     return sniffer, session
 
 
 def main() -> None:
+
+    def _find_valid_interface(requested_iface: str):
+        """Find a valid interface for packet capture, with fallback logic."""
+        from scapy.all import get_if_list, get_if_addr
+        import psutil
+    
+        # First, try the requested interface
+        available = get_if_list()
+        if requested_iface in available:
+            try:
+                if get_if_addr(requested_iface) not in ("", "0.0.0.0"):
+                    return requested_iface
+            except Exception:
+                pass
+    
+        # Fallback: get interfaces from psutil (active, non-loopback)
+        try:
+            stats = psutil.net_if_stats()
+            candidates = []
+            for iface_name, stat in stats.items():
+                if not stat.isup:
+                    continue
+                if iface_name in ("lo", "loopback", "localhost"):
+                    continue
+                try:
+                    iface_addr = get_if_addr(iface_name)
+                except Exception:
+                    iface_addr = ""
+                if not iface_addr or iface_addr == "0.0.0.0":
+                    continue
+                candidates.append(iface_name)
+        
+            if candidates:
+                return candidates[0]  # Use first valid interface
+        except Exception:
+            pass
+    
+        # Last resort: any interface that's not loopback
+        for iface in available:
+            if iface not in ("lo", "loopback", "localhost"):
+                return iface
+    
+        # No valid interface found
+        return None
+
     import sys
 
     # Log file
@@ -167,6 +213,23 @@ def main() -> None:
     
     log(f"[cicflow_fast] START Iniciando com interface={args.interface}, url={args.url}")
 
+    # Validar interface e procurar alternativas se necessário
+    valid_iface = _find_valid_interface(args.interface)
+    if not valid_iface:
+        log(f"[cicflow_fast] ERRO: Nenhuma interface de rede válida encontrada. Tentou: {args.interface}")
+        print(f"[cicflow_fast] ERRO STDERR: Nenhuma interface de rede válida", file=sys.stderr, flush=True)
+        if logfile:
+            logfile.close()
+        return
+    
+    if valid_iface != args.interface:
+        log(f"[cicflow_fast] Interface {args.interface} não encontrada. Usando alternativa: {valid_iface}")
+        print(f"[cicflow_fast] Interface fallback: {args.interface} → {valid_iface}", file=sys.stderr, flush=True)
+        args.interface = valid_iface
+    else:
+        log(f"[cicflow_fast] Interface validada: {valid_iface}")
+        print(f"[cicflow_fast] Interface OK: {valid_iface}", file=sys.stderr, flush=True)
+    
     _apply_runtime_safety_patches()
 
     # Sobrescreve valores importados em flow_session.py.
@@ -216,18 +279,23 @@ def main() -> None:
         return
 
     try:
+        log(f"[cicflow_fast] Chamando sniffer.start()...")
+        sys.stderr.flush()
         sniffer.start()
         log(f"[cicflow_fast] Sniffer iniciado, aguardando fluxos...")
+        sys.stderr.flush()
         sniffer.join()
         log(f"[cicflow_fast] sniffer.join() retornou")
     except KeyboardInterrupt:
         log(f"[cicflow_fast] Interrupção recebida")
         sniffer.stop()
     except Exception as e:
-        log(f"[cicflow_fast] ERRO durante captura: {e}")
+        log(f"[cicflow_fast] ERRO durante captura: {type(e).__name__}: {e}")
         import traceback
+        print(f"[cicflow_fast] ERRO STDERR: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
         if logfile:
             traceback.print_exc(file=logfile)
+            logfile.flush()
     finally:
         if session is not None and hasattr(session, "_gc_stop"):
             session._gc_stop.set()

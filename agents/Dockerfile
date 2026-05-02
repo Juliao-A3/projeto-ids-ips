@@ -16,9 +16,8 @@ COPY backend/requirements.txt backend/requirements.txt
 COPY agents/requeriment.txt agents/requeriment.txt
 COPY agents/sniffer_requirements.txt agents/sniffer_requirements.txt
 
-RUN python -m pip install --upgrade pip \
-	&& if [ "$INSTALL_PROFILE" = "sniffer" ]; then pip install -r agents/sniffer_requirements.txt; fi \
-	&& if [ "$INSTALL_PROFILE" = "firewall" ]; then pip install -r agents/requeriment.txt; fi
+RUN if [ "$INSTALL_PROFILE" = "sniffer" ]; then pip install --no-cache-dir --default-timeout 120 --retries 10 -r agents/sniffer_requirements.txt; fi \
+	&& if [ "$INSTALL_PROFILE" = "firewall" ]; then pip install --no-cache-dir --default-timeout 120 --retries 10 -r agents/requeriment.txt; fi
 
 COPY backend backend
 COPY models models

@@ -4,7 +4,12 @@ O cicflowmeter devolve chaves em lowercase_underscore.
 O modelo espera "Title Case With Spaces" exactamente como no dataset.
 """
 
-from predictor import feature_names  # 78 features do ids_features.pkl
+try:
+    from . import predictor as _predictor
+except ImportError:
+    import predictor as _predictor
+
+feature_names = getattr(_predictor, "feature_names", [])  # 78 features do ids_features.pkl
 
 # Mapeamento cicflowmeter → CIC-IDS 2018
 _MAP = {

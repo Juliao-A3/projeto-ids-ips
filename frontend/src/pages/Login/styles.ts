@@ -378,7 +378,7 @@ export const StatusDot = styled.div<{ $color?: string; $fast?: boolean }>`
   border-radius: 50%;
   background: ${({ theme, $color }) => $color || theme.colors.success};
   box-shadow: 0 0 5px ${({ theme, $color }) => $color || theme.colors.success};
-  animation: ${blinkAnim} ${({ $fast }) => ($fast ? "0.9s" : "2.2s")} step-start infinite;
+  opacity: 1;
 `;
 
 export const StatusLabel = styled.span`

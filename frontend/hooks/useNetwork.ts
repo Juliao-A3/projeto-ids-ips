@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "../src/services/api";
 
 type Interface = {
@@ -9,6 +9,7 @@ type Interface = {
   mac: string;
   packets_sent: number;
   packets_recv: number;
+  monitored: boolean;
 };
 
 type BlockedIP = {
@@ -27,14 +28,41 @@ export type NetworkConfigSchema = {
   whitelist: string;
 };
 
+const extractConfiguredInterfaces = (
+  config: Partial<NetworkConfigSchema> | null | undefined
+) => {
+  if (!config) return [];
+
+  if (
+    Array.isArray(config.capture_interfaces) &&
+    config.capture_interfaces.length > 0
+  ) {
+    return config.capture_interfaces;
+  }
+
+  return String(config.capture_interface || "eth0")
+    .split(",")
+    .map((entry: string) => entry.trim())
+    .filter(Boolean);
+};
+
+const mergeInterfaces = (
+  allIfaces: Interface[],
+  monitoredNames: string[]
+): Interface[] =>
+  allIfaces.map((iface) => ({
+    ...iface,
+    monitored: monitoredNames.includes(iface.name),
+  }));
+
 export function useNetwork() {
   const [interfaces, setInterfaces] = useState<Interface[]>([]);
   const [blockedIps, setBlockedIps] = useState<BlockedIP[]>([]);
-  const [config, setConfig]         = useState<NetworkConfigSchema>({
+  const [config, setConfig] = useState<NetworkConfigSchema>({
     capture_interface: "eth0",
     capture_interfaces: ["eth0"],
     zone_map: {},
-    promiscuous_mode:  true,
+    promiscuous_mode: true,
     bpf_filter: "",
     whitelist: "192.168.1.0/24, 10.0.0.0/8, 127.0.0.1",
   });
@@ -43,47 +71,64 @@ export function useNetwork() {
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  const fetchInterfaces = useCallback(() => { 
-    api.get('/sniffer/interfaces')
-      .then(r => {
-        // Retorna a lista de interfaces monitoradas pelo sniffer
-        const monitored = r.data.monitored_interfaces || [];
-        setInterfaces(monitored.map((name: string) => ({
-          name: name,
-          status: "UP",
-          speed: "N/A",
-          ip: "",
-          mac: "",
-          packets_sent: 0,
-          packets_recv: 0,
-        })));
+  const configRef = useRef(config);
+  useEffect(() => {
+    configRef.current = config;
+  }, [config]);
+
+  // Busca TODAS as interfaces do SO + quais estão a ser monitorizadas
+  const fetchInterfaces = useCallback(() => {
+    Promise.all([
+      api.get("/network/interfaces"),
+      api
+        .get("/sniffer/interfaces")
+        .catch(() => ({ data: { monitored_interfaces: [] } })),
+    ])
+      .then(([ifRes, sniffRes]) => {
+        const monitored: string[] =
+          sniffRes.data.monitored_interfaces || [];
+        const all = mergeInterfaces(ifRes.data as Interface[], monitored);
+        setInterfaces((prev) =>
+          JSON.stringify(prev) === JSON.stringify(all) ? prev : all
+        );
       })
-      .catch(() => {
-        // Fallback para /network/interfaces se /sniffer/interfaces falhar
-        api.get('/network/interfaces')
-          .then(r => setInterfaces(r.data))
-          .catch(() => setError('Erro ao carregar interfaces'));
-      });
+      .catch(() => setError("Erro ao carregar interfaces"));
   }, []);
 
   const fetchBlockedIps = useCallback(() => {
-    api.get('/network/blocked-ips')
-      .then(r => setBlockedIps(r.data))
+    api
+      .get("/network/blocked-ips")
+      .then((r) =>
+        setBlockedIps((prev) =>
+          JSON.stringify(prev) === JSON.stringify(r.data) ? prev : r.data
+        )
+      )
       .catch(() => {});
   }, []);
 
   const fetchConfig = useCallback(() => {
-    api.get('/network/config')
-      .then(r => {
+    api
+      .get("/network/config")
+      .then((r) => {
         if (r.data) {
-          setConfig({
+          const configuredInterfaces = extractConfiguredInterfaces(r.data);
+          const next: NetworkConfigSchema = {
             ...r.data,
-            capture_interface: r.data.capture_interface || (Array.isArray(r.data.capture_interfaces) ? r.data.capture_interfaces.join(',') : 'eth0'),
-            capture_interfaces: Array.isArray(r.data.capture_interfaces) && r.data.capture_interfaces.length > 0
-              ? r.data.capture_interfaces
-              : String(r.data.capture_interface || 'eth0').split(',').map((entry: string) => entry.trim()).filter(Boolean),
+            capture_interface:
+              r.data.capture_interface ||
+              (Array.isArray(r.data.capture_interfaces)
+                ? r.data.capture_interfaces.join(",")
+                : "eth0"),
+            capture_interfaces:
+              Array.isArray(r.data.capture_interfaces) &&
+              r.data.capture_interfaces.length > 0
+                ? r.data.capture_interfaces
+                : configuredInterfaces,
             zone_map: r.data.zone_map || {},
-          });
+          };
+          setConfig((prev) =>
+            JSON.stringify(prev) === JSON.stringify(next) ? prev : next
+          );
         }
       })
       .catch(() => {});
@@ -91,67 +136,68 @@ export function useNetwork() {
 
   useEffect(() => {
     setLoading(true);
+
     Promise.all([
-      api.get('/sniffer/interfaces')
-        .then(r => {
-          const monitored = r.data.monitored_interfaces || [];
-          return {
-            data: monitored.map((name: string) => ({
-              name: name,
-              status: "UP",
-              speed: "N/A",
-              ip: "",
-              mac: "",
-              packets_sent: 0,
-              packets_recv: 0,
-            }))
-          };
-        })
-        .catch(() => api.get('/network/interfaces')),
-      api.get('/network/blocked-ips').catch(() => ({ data: [] })),
-      api.get('/network/config').catch(() => ({ data: null })),
+      // Todas as interfaces + monitorizadas em paralelo
+      Promise.all([
+        api.get("/network/interfaces"),
+        api
+          .get("/sniffer/interfaces")
+          .catch(() => ({ data: { monitored_interfaces: [] } })),
+      ]).then(([ifRes, sniffRes]) => {
+        const monitored: string[] =
+          sniffRes.data.monitored_interfaces || [];
+        return {
+          data: mergeInterfaces(ifRes.data as Interface[], monitored),
+        } as any;
+      }),
+      api.get("/network/blocked-ips").catch(() => ({ data: [] })),
+      api.get("/network/config").catch(() => ({ data: null })),
     ])
       .then(([ifRes, ipRes, cfgRes]) => {
         setInterfaces(ifRes.data);
         setBlockedIps(ipRes.data);
         if (cfgRes.data) {
-          setConfig({
+          const configuredInterfaces = extractConfiguredInterfaces(cfgRes.data);
+          const next: NetworkConfigSchema = {
             ...cfgRes.data,
-            capture_interface: cfgRes.data.capture_interface || (Array.isArray(cfgRes.data.capture_interfaces) ? cfgRes.data.capture_interfaces.join(',') : 'eth0'),
-            capture_interfaces: Array.isArray(cfgRes.data.capture_interfaces) && cfgRes.data.capture_interfaces.length > 0
-              ? cfgRes.data.capture_interfaces
-              : String(cfgRes.data.capture_interface || 'eth0').split(',').map((entry: string) => entry.trim()).filter(Boolean),
+            capture_interface:
+              cfgRes.data.capture_interface ||
+              (Array.isArray(cfgRes.data.capture_interfaces)
+                ? cfgRes.data.capture_interfaces.join(",")
+                : "eth0"),
+            capture_interfaces:
+              Array.isArray(cfgRes.data.capture_interfaces) &&
+              cfgRes.data.capture_interfaces.length > 0
+                ? cfgRes.data.capture_interfaces
+                : configuredInterfaces,
             zone_map: cfgRes.data.zone_map || {},
-          });
+          };
+          setConfig(next);
         }
       })
-      .catch(() => setError('Erro ao carregar rede'))
+      .catch(() => setError("Erro ao carregar rede"))
       .finally(() => setLoading(false));
 
-    // atualiza interfaces a cada 5 segundos
-    const interfaceInterval = setInterval(fetchInterfaces, 5000);
-    
-    // atualiza config (whitelist, bpf_filter) a cada 3 segundos
-    const configInterval = setInterval(fetchConfig, 3000);
-    
-    // atualiza IPs bloqueados a cada 4 segundos
-    const blockedIpsInterval = setInterval(fetchBlockedIps, 4000);
-    
+    const interfaceInterval  = setInterval(fetchInterfaces, 5000);
+    const configInterval     = setInterval(fetchConfig, 10000);
+    const blockedIpsInterval = setInterval(fetchBlockedIps, 5000);
+
     return () => {
       clearInterval(interfaceInterval);
       clearInterval(configInterval);
       clearInterval(blockedIpsInterval);
     };
-  }, [fetchInterfaces, fetchConfig, fetchBlockedIps]);
+  }, []);
 
   const unblockIp = async (id: number) => {
     try {
       await api.delete(`/network/blocked-ips/${id}`);
-      setSuccessMsg('IP desbloqueado com sucesso!');
+      setSuccessMsg("IP desbloqueado com sucesso!");
       fetchBlockedIps();
       setTimeout(() => setSuccessMsg(null), 3000);
     } catch {
-      setError('Erro ao desbloquear IP');
+      setError("Erro ao desbloquear IP");
       setTimeout(() => setError(null), 3000);
     }
   };
@@ -159,13 +205,13 @@ export function useNetwork() {
   const saveConfig = async (data: NetworkConfigSchema) => {
     try {
       setSaving(true);
-      await api.put('/network/config', data);
+      await api.put("/network/config", data);
       setConfig(data);
-      setSuccessMsg('Configuração salva com sucesso!');
+      setSuccessMsg("Configuração salva com sucesso!");
       setTimeout(() => setSuccessMsg(null), 3000);
       return true;
     } catch {
-      setError('Erro ao salvar configuração');
+      setError("Erro ao salvar configuração");
       setTimeout(() => setError(null), 3000);
       return false;
     } finally {
@@ -178,9 +224,9 @@ export function useNetwork() {
       capture_interface: "eth0",
       capture_interfaces: ["eth0"],
       zone_map: {},
-      promiscuous_mode:  true,
-      bpf_filter:        "",
-      whitelist:         "192.168.1.0/24, 10.0.0.0/8, 127.0.0.1",
+      promiscuous_mode: true,
+      bpf_filter: "",
+      whitelist: "192.168.1.0/24, 10.0.0.0/8, 127.0.0.1",
     };
     await saveConfig(defaults);
   };
