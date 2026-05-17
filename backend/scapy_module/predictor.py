@@ -4,12 +4,61 @@ import pickle
 import json
 import numpy as np
 import pandas as pd
+<<<<<<< HEAD
 from pathlib import Path
 import sys
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")
 
 PROJECT_PATH = Path(__file__).resolve().parent.parent.parent
+=======
+try:
+        import tensorflow as tf
+        TF_AVAILABLE = True
+except ImportError:
+        tf = None
+        TF_AVAILABLE = False
+
+# ── Paths ──────────────────────────────────────────────────────────────────
+BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
+STUDY_DIR  = os.path.join(BASE_DIR, "..", "..", "estudo")   # pasta estudo na raiz do projeto
+
+MODEL_PATH    = os.path.join(STUDY_DIR, "ids_deep_learning_model.keras")
+SCALER_PATH   = os.path.join(STUDY_DIR, "ids_scaler.pkl")
+ENCODER_PATH  = os.path.join(STUDY_DIR, "ids_label_encoder.pkl")
+FEATURES_PATH = os.path.join(STUDY_DIR, "ids_features.pkl")
+
+# ── Load artefacts ─────────────────────────────────────────────────────────
+def _load_pickle(path: str, name: str):
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"[Predictor] Ficheiro não encontrado: {path}")
+    with open(path, "rb") as f:
+        obj = pickle.load(f)
+    print(f"[Predictor] {name} carregado ✓")
+    return obj
+
+model = None
+scaler = None
+le = None
+feature_names = []
+_CLASS_INDEX = {}
+
+if TF_AVAILABLE:
+    try:
+        print("[Predictor] A carregar modelo Keras...")
+        model         = tf.keras.models.load_model(MODEL_PATH)
+        scaler        = _load_pickle(SCALER_PATH,    "ids_scaler.pkl")
+        le            = _load_pickle(ENCODER_PATH,   "ids_label_encoder.pkl")
+        feature_names = list(_load_pickle(FEATURES_PATH, "ids_features.pkl"))
+        print(f"[Predictor] Features ({len(feature_names)}): {feature_names}")
+        print(f"[Predictor] Classes  ({len(le.classes_)}): {list(le.classes_)}")
+        _CLASS_INDEX = {str(name).strip().lower(): idx for idx, name in enumerate(le.classes_)}
+    except Exception as e:
+        print(f"[Predictor] Modelo nao disponivel: {e}")
+else:
+    print("[Predictor] TensorFlow nao disponivel - modo cloud")
+_WEB_PORTS = {80, 443, 8080, 8443}
+>>>>>>> 85b6a24ae68ef8aae4e61f071fe9a0a7eb0089e7
 
 
 def _resolver_modelo_padrao() -> Path:
@@ -229,6 +278,12 @@ def prever_fluxo(features: dict) -> dict | None:
 
 
 if __name__ == "__main__":
+<<<<<<< HEAD
     path = sys.argv[1] if len(sys.argv) > 1 else None
     p = ModelPredictor(path)
     print("✅ Predictor pronto!")
+=======
+    dummy  = {feat: 0.0 for feat in feature_names}
+    result = predict_flow(dummy)
+    print("[Predictor] Teste com zeros:", result)
+>>>>>>> 85b6a24ae68ef8aae4e61f071fe9a0a7eb0089e7

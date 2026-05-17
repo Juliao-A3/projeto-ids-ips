@@ -1,6 +1,23 @@
 import axios from "axios";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
+const configuredApiBaseUrl =
+  import.meta.env.VITE_API_URL?.trim() ||
+  import.meta.env.VITE_API_BASE_URL?.trim() ||
+  "";
+
+const browserHost =
+  typeof window !== "undefined" ? window.location.hostname : "localhost";
+const browserIsLocal = browserHost === "localhost" || browserHost === "127.0.0.1";
+
+const configuredUsesLocalhost = /^(https?:\/\/)(localhost|127\.0\.0\.1)(:\d+)?$/i.test(
+  configuredApiBaseUrl
+);
+
+const API_BASE_URL = configuredApiBaseUrl
+  ? configuredUsesLocalhost && !browserIsLocal
+    ? configuredApiBaseUrl.replace(/localhost|127\.0\.0\.1/i, browserHost)
+    : configuredApiBaseUrl
+  : `http://${browserHost}:8000`;
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
@@ -17,9 +34,11 @@ const IGNORAR_LOGOUT = [
 api.interceptors.request.use((config) => {
   const isAuthLogin = config.url?.includes("/auth/login");
   const token = localStorage.getItem("access_token");
+
   if (token && !isAuthLogin) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+
   return config;
 });
 
@@ -28,12 +47,16 @@ api.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
 
-    const ignorarLogout = IGNORAR_LOGOUT.some(rota =>
+    const ignorarLogout = IGNORAR_LOGOUT.some((rota) =>
       originalRequest.url?.includes(rota)
-    ); 
+    );
 
-    if (error.response?.status === 401 && !originalRequest._retry && !ignorarLogout) {
-      originalRequest._retry = true; 
+    if (
+      error.response?.status === 401 &&
+      !originalRequest._retry &&
+      !ignorarLogout
+    ) {
+      originalRequest._retry = true;
 
       try {
         const refreshToken = localStorage.getItem("refresh_token");
@@ -44,15 +67,18 @@ api.interceptors.response.use(
           return Promise.reject(error);
         }
 
-        const response = await axios.post(`${API_BASE_URL}/auth/refresh`, {
-          refresh_token: refreshToken
-        });
+        const response = await axios.post(
+          `${API_BASE_URL}/auth/refresh`,
+          {
+            refresh_token: refreshToken,
+          }
+        );
 
         const newToken = response.data.access_token;
         localStorage.setItem("access_token", newToken);
+
         originalRequest.headers.Authorization = `Bearer ${newToken}`;
         return api(originalRequest);
-
       } catch {
         localStorage.clear();
         window.location.href = "/login";

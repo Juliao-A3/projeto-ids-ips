@@ -1,0 +1,8 @@
+{
+  "capture_interfaces": [
+    "eth0"
+  ],
+  "zone_map": {
+    "eth0": "wan"
+  }
+}

@@ -75,12 +75,7 @@ export const Divider = styled.div`
 `;
 
 const logColumns = `
-  100px                     /* Timestamp */
-  160px                     /* Origem */
-  minmax(220px, 1fr)        /* Destino (flexível controlado) */
-  130px                     /* Protocolo */
-  120px                     /* Severidade */
-  140px                     /* Ações */
+  repeat(5, minmax(0, 1fr)) /* Timestamp, Origem, Destino, Protocolo, Severidade */
 `;
 
 

@@ -56,8 +56,8 @@ export function UserTable({ refreshTrigger }: UserTableProps) {
       });
       setEditingId(null);
       fetchUsers();
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Erro ao editar utilizador');
+    } catch (err: unknown) {
+      setError((err as any)?.response?.data?.detail || 'Erro ao editar utilizador');
     }
   };
 
@@ -66,8 +66,8 @@ export function UserTable({ refreshTrigger }: UserTableProps) {
     try {
       await api.delete(`/auth/users/${userId}`);
       fetchUsers();
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Erro ao apagar utilizador');
+    } catch (err: unknown) {
+      setError((err as any)?.response?.data?.detail || 'Erro ao apagar utilizador');
     }
   };
 

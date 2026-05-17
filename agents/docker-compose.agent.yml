@@ -1,0 +1,44 @@
+services:
+  sniffer:
+    build:
+      context: ..
+      dockerfile: agents/Dockerfile
+      args:
+        INSTALL_PROFILE: "sniffer"
+    restart: unless-stopped
+    network_mode: host
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    env_file:
+      - ../.env.sniffer
+    environment:
+      SNIFFER_INTERFACES: ${SNIFFER_INTERFACES:-eth0,eth1}
+      SNIFFER_ACTIVE_TIMEOUT: ${SNIFFER_ACTIVE_TIMEOUT:-2}
+      CONFIDENCE_THRESHOLD: ${CONFIDENCE_THRESHOLD:-0.70}
+    volumes:
+      - aegis_logs:/app/logs
+
+  firewall-agent:
+    build:
+      context: ..
+      dockerfile: agents/Dockerfile
+      args:
+        INSTALL_PROFILE: "firewall"
+    restart: unless-stopped
+    command: ["python", "/app/agents/firewall_sync.py"]
+    network_mode: host
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    env_file:
+      - ../.env.sniffer
+    environment:
+      AGENT_POLL_SECONDS: ${AGENT_POLL_SECONDS:-10}
+      AGENT_HTTP_TIMEOUT: ${AGENT_HTTP_TIMEOUT:-10}
+
+volumes:
+  aegis_logs:
+    name: aegis_logs   # ← nome fixo, sem prefixo do projeto Docker

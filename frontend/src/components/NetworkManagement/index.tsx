@@ -1,19 +1,20 @@
 import { useState, useEffect } from 'react';
-import { Activity, Shield, Zap, Lock, Unlock, Radio } from 'lucide-react';
+import { Activity, Shield, Lock, Unlock, Radio } from 'lucide-react';
 import { ToggleSwitch } from '../ToggleSwitch';
 import { Dropdown } from '../Dropdown';
 import { TextArea } from '../TextArea';
 import { useNetwork } from '../../../hooks/useNetwork';
-import type { NetworkConfigSchema } from '../../../hooks/useNetwork';
 import { useAuth } from '../../contexts/AuthContext';
 import {
   Container, Content, Section, SectionHeader, SectionTitle,
   SectionContent, BridgeConfig, BridgeDescription, BridgeSettings,
   BridgeToggles, TwoColumnsWrapper, Footer, FooterButtons,
-  RestoreButton, SaveButton
+  RestoreButton, SaveButton, WhitelistEditor, WhitelistInputRow,
+  WhitelistInput, WhitelistAddButton, WhitelistList, WhitelistChip,
+  WhitelistChipButton, WhitelistHint, WhitelistError, Label,
 } from './styles';
 
-export function NetworkManagement() {
+function NetworkManagement() {
   const { user }    = useAuth();
   const {
     interfaces, blockedIps, config,
@@ -21,33 +22,137 @@ export function NetworkManagement() {
     unblockIp, saveConfig, restoreDefaults
   } = useNetwork();
 
-  const [captureInterface, setCaptureInterface] = useState('eth0');
+  const [wanInterface, setWanInterface] = useState('');
+  const [lanInterface, setLanInterface] = useState('');
   const [promiscuousMode, setPromiscuousMode]   = useState(true);
   const [bpfFilter, setBpfFilter]               = useState('');
-  const [whitelist, setWhitelist]               = useState('192.168.1.0/24, 10.0.0.0/8, 127.0.0.1');
+  const [whitelistEntries, setWhitelistEntries]  = useState<string[]>([]);
+  const [whitelistInput, setWhitelistInput]      = useState('');
+  const [whitelistError, setWhitelistError]      = useState('');
+  const [captureError, setCaptureError]         = useState('');
+  const [captureDirty, setCaptureDirty]         = useState(false);
+  const [whitelistDirty, setWhitelistDirty]      = useState(false);
+
+  const parseWhitelist = (value: string) =>
+    Array.from(
+      new Set(
+        value
+          .split(/[\n,]/)
+          .map(entry => entry.trim())
+          .filter(Boolean)
+      )
+    );
+
+  const isValidIPv4 = (value: string) => {
+    const ipv4Pattern = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
+    return ipv4Pattern.test(value.trim());
+  };
+
+  const persistWhitelistEntries = (entries: string[]) => {
+    setWhitelistEntries(entries);
+    setWhitelistDirty(true);
+  };
 
   // sincroniza com dados do backend
   useEffect(() => {
-    if (config) {
-      setCaptureInterface(config.capture_interface);
+    if (config && !whitelistDirty && !captureDirty) {
+      const zoneMap = config.zone_map || {};
+      const wanEntry = Object.entries(zoneMap).find(([, zone]) => zone === 'wan');
+      const lanEntry = Object.entries(zoneMap).find(([, zone]) => zone === 'lan');
+      const configuredInterfaces = Array.isArray(config.capture_interfaces) && config.capture_interfaces.length > 0
+        ? config.capture_interfaces
+        : String(config.capture_interface || '')
+            .split(',')
+            .map((entry: string) => entry.trim())
+            .filter(Boolean);
+
+      const fallbackWan = configuredInterfaces[0] || '';
+      const fallbackLan = configuredInterfaces[1] || '';
+
+      setWanInterface(wanEntry?.[0] || fallbackWan);
+      setLanInterface(lanEntry?.[0] || fallbackLan);
+
       setPromiscuousMode(config.promiscuous_mode);
       setBpfFilter(config.bpf_filter);
-      setWhitelist(config.whitelist);
+      setWhitelistEntries(parseWhitelist(config.whitelist));
     }
-  }, [config]);
+  }, [config, whitelistDirty, captureDirty]);
+
+  const handleWanChange = (value: string) => {
+    setWanInterface(value);
+    setCaptureDirty(true);
+    setCaptureError('');
+  };
+
+  const handleLanChange = (value: string) => {
+    setLanInterface(value);
+    setCaptureDirty(true);
+    setCaptureError('');
+  };
 
   const interfaceOptions = interfaces.map(i => ({
     value: i.name,
     label: `${i.name} — ${i.ip} (${i.status})`
   }));
 
-  const handleSave = () => {
-    saveConfig({
-      capture_interface: captureInterface,
+  const handleSave = async () => {
+    const normalizedInterfaces = Array.from(new Set([wanInterface, lanInterface].map(value => value.trim()).filter(Boolean)));
+
+    if (normalizedInterfaces.length === 0) {
+      setCaptureError('Selecione pelo menos uma interface WAN ou LAN para salvar.');
+      return;
+    }
+    setCaptureError('');
+
+    const zoneMap: Record<string, string> = {};
+    if (wanInterface && normalizedInterfaces.includes(wanInterface.trim())) {
+      zoneMap[wanInterface.trim()] = 'wan';
+    }
+    if (lanInterface && normalizedInterfaces.includes(lanInterface.trim())) {
+      zoneMap[lanInterface.trim()] = 'lan';
+    }
+
+    const saved = await saveConfig({
+      capture_interface: normalizedInterfaces.join(','),
+      capture_interfaces: normalizedInterfaces,
+      zone_map: zoneMap,
       promiscuous_mode:  promiscuousMode,
       bpf_filter:        bpfFilter,
-      whitelist,
+      whitelist: whitelistEntries.join(', '),
     });
+    if (saved) {
+      setWhitelistDirty(false);
+      setCaptureDirty(false);
+      setWhitelistError('');
+      setCaptureError('');
+    }
+  };
+
+  const handleAddWhitelistIp = () => {
+    const candidate = whitelistInput.trim();
+    if (!candidate) {
+      setWhitelistError('Informe um IP válido.');
+      return;
+    }
+
+    if (!isValidIPv4(candidate)) {
+      setWhitelistError('IP inválido. Use IPv4 no formato 192.168.1.10.');
+      return;
+    }
+
+    if (whitelistEntries.includes(candidate)) {
+      setWhitelistError('Esse IP já está na lista branca.');
+      return;
+    }
+
+    persistWhitelistEntries([...whitelistEntries, candidate]);
+    setWhitelistInput('');
+    setWhitelistError('');
+  };
+
+  const handleRemoveWhitelistIp = (ip: string) => {
+    persistWhitelistEntries(whitelistEntries.filter(entry => entry !== ip));
+    setWhitelistError('');
   };
 
   return (
@@ -149,16 +254,32 @@ export function NetworkManagement() {
               </BridgeSettings>
 
               <div style={{ marginTop: '16px' }}>
-                <Dropdown
-                  label="INTERFACE DE CAPTURA"
-                  value={captureInterface}
-                  onChange={setCaptureInterface}
-                  options={interfaceOptions.length > 0 ? interfaceOptions : [
-                    { value: 'eth0', label: 'eth0' },
-                    { value: 'eth1', label: 'eth1' },
-                    { value: 'wlan0', label: 'wlan0' },
-                  ]}
-                />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                  <Dropdown
+                    label="INTERFACE WAN"
+                    value={wanInterface}
+                    onChange={handleWanChange}
+                    options={[
+                      { value: '', label: 'Não definir' },
+                      ...(interfaceOptions.length > 0 ? interfaceOptions : [
+                        { value: 'eth0', label: 'eth0' },
+                        { value: 'eth1', label: 'eth1' },
+                      ]),
+                    ]}
+                  />
+                  <Dropdown
+                    label="INTERFACE LAN"
+                    value={lanInterface}
+                    onChange={handleLanChange}
+                    options={[
+                      { value: '', label: 'Não definir' },
+                      ...(interfaceOptions.length > 0 ? interfaceOptions : [
+                        { value: 'eth0', label: 'eth0' },
+                        { value: 'eth1', label: 'eth1' },
+                      ]),
+                    ]}
+                  />
+                </div>
               </div>
 
               <div style={{ marginTop: '16px' }}>
@@ -170,6 +291,9 @@ export function NetworkManagement() {
                   description="Filtro nativo do Scapy para limitar o tráfego capturado. Deixe vazio para capturar tudo."
                   rows={3}
                 />
+                {captureError && (
+                  <WhitelistError style={{ marginTop: '8px' }}>{captureError}</WhitelistError>
+                )}
               </div>
             </BridgeConfig>
           </SectionContent>
@@ -183,14 +307,61 @@ export function NetworkManagement() {
               <SectionTitle>LISTA BRANCA (WHITELIST)</SectionTitle>
             </SectionHeader>
             <SectionContent>
-              <TextArea
-                label="IPs CONFIÁVEIS / REDES LOCAIS"
-                value={whitelist}
-                onChange={setWhitelist}
-                placeholder="Ex: 192.168.1.0/24, 10.0.0.0/8, 127.0.0.1"
-                description="Estes IPs não serão analisados pelo motor Scapy."
-                rows={10}
-              />
+                <WhitelistEditor>
+                  <div>
+                    <Label>ADICIONAR IP À LISTA BRANCA</Label>
+                    <WhitelistInputRow>
+                      <WhitelistInput
+                        value={whitelistInput}
+                        onChange={(e) => {
+                          setWhitelistInput(e.target.value);
+                          if (whitelistError) setWhitelistError('');
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleAddWhitelistIp();
+                          }
+                        }}
+                        placeholder="Ex: 192.168.1.10"
+                      />
+                      <WhitelistAddButton
+                        type="button"
+                        onClick={handleAddWhitelistIp}
+                        disabled={!whitelistInput.trim()}
+                      >
+                        ADICIONAR
+                      </WhitelistAddButton>
+                    </WhitelistInputRow>
+                    <WhitelistHint>
+                      Apenas IPs IPv4 válidos podem ser adicionados aqui. Entradas já existentes, como redes CIDR, continuam preservadas na lista.
+                    </WhitelistHint>
+                    {whitelistError && <WhitelistError>{whitelistError}</WhitelistError>}
+                  </div>
+
+                  <div>
+                    <Label>IPS E REDES NA LISTA</Label>
+                    <WhitelistList>
+                      {whitelistEntries.length === 0 ? (
+                        <WhitelistHint>Nenhum IP configurado na whitelist.</WhitelistHint>
+                      ) : (
+                        whitelistEntries.map((ip) => (
+                          <WhitelistChip key={ip}>
+                            {ip}
+                            <WhitelistChipButton
+                              type="button"
+                              onClick={() => handleRemoveWhitelistIp(ip)}
+                              aria-label={`Remover ${ip}`}
+                              title="Remover"
+                            >
+                              ×
+                            </WhitelistChipButton>
+                          </WhitelistChip>
+                        ))
+                      )}
+                    </WhitelistList>
+                  </div>
+                </WhitelistEditor>
             </SectionContent>
           </Section>
 
@@ -296,3 +467,5 @@ export function NetworkManagement() {
     </Container>
   );
 }
+
+export default NetworkManagement;

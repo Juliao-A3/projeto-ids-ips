@@ -1,0 +1,37 @@
+# ─── Build stage ───────────────────────────────────────────
+FROM python:3.11-slim AS builder
+
+WORKDIR /app
+
+# Instala dependências de sistema para psycopg2 e outros
+RUN apt-get update && apt-get install -y \
+    gcc \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY backend/requirements.txt .
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+# ─── Runtime stage ─────────────────────────────────────────
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Apenas runtime libs
+RUN apt-get update && apt-get install -y \
+    libpq5 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copia dependências do builder
+COPY --from=builder /install /usr/local
+
+# Copia código do backend
+COPY backend/ ./backend/
+COPY estudo/ ./estudo/
+
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
+
+EXPOSE 8000
+
+CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]

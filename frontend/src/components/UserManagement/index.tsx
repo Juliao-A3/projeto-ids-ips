@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { UserTable } from '../UserTable';
-import { PermissionsSection } from '../PermissionsSection';
 import { Modal } from '../Modal';
 import { AddUserForm } from '../AddUserForm';
 import { api } from '../../services/api';
@@ -28,8 +27,8 @@ export function UserManagement() {
       console.log('Usuário criado com sucesso:', response.data);
       setRefreshKey(prev => prev + 1); // Trigger refresh
       return response.data;
-    } catch (error: any) {
-      const errorMsg = error.response?.data?.detail || 'Erro ao criar usuário';
+    } catch (error: unknown) {
+      const errorMsg = (error as any)?.response?.data?.detail || 'Erro ao criar usuário';
       console.error('Erro ao criar usuário:', errorMsg);
       throw new Error(errorMsg);
     }

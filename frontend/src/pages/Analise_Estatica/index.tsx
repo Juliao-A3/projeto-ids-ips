@@ -38,7 +38,7 @@ export function AnaliseEstatica() {
 
   const fileRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => { fetchHistorico(); }, []);
+  useEffect(() => { fetchHistorico(); }, [fetchHistorico]);
 
   // ── drag & drop (pcap + csv)
   const onDrop = useCallback((e: React.DragEvent) => {
@@ -92,8 +92,8 @@ export function AnaliseEstatica() {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       setResultadoCSV(res.data);
-    } catch (err: any) {
-      setCsvError(err.response?.data?.detail || 'Erro ao analisar CSV');
+    } catch (err: unknown) {
+      setCsvError((err as any)?.response?.data?.detail || 'Erro ao analisar CSV');
     } finally {
       setCsvLoading(false);
     }

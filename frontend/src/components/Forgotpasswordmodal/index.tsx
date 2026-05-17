@@ -38,8 +38,8 @@ export function ForgotPasswordModal({ onClose }: Props) {
       setEmail(data.email);
       setAlert({ t:'info', msg:`Código enviado para ${data.email}` });
       setTimeout(() => { setAlert(null); setStep(2); }, 1100);
-    } catch (err: any) {
-      setAlert({ t:'error', msg: err.response?.data?.detail || 'Erro ao enviar código.' });
+    } catch (err: unknown) {
+      setAlert({ t:'error', msg: (err as any)?.response?.data?.detail || 'Erro ao enviar código.' });
     } finally { setLoading(false); }
   };
 
@@ -70,8 +70,8 @@ export function ForgotPasswordModal({ onClose }: Props) {
       await api.post('/auth/verify-reset-code', { email, codigo: codeStr });
       setAlert({ t:'success', msg:'Código verificado! Define a tua nova senha.' });
       setTimeout(() => { setAlert(null); setStep(3); }, 900);
-    } catch (err: any) {
-      setAlert({ t:'error', msg: err.response?.data?.detail || 'Código inválido ou expirado.' });
+    } catch (err: unknown) {
+      setAlert({ t:'error', msg: (err as any)?.response?.data?.detail || 'Código inválido ou expirado.' });
       setCode(['','','','','','']); setTimeout(() => focusCode(0), 0);
     } finally { setLoading(false); }
   };
@@ -95,8 +95,8 @@ export function ForgotPasswordModal({ onClose }: Props) {
     try {
       await api.post('/auth/reset-password', { email, codigo: code.join(''), nova_senha: data.nova_senha });
       setStep(4);
-    } catch (err: any) {
-      setAlert({ t:'error', msg: err.response?.data?.detail || 'Erro ao redefinir a senha.' });
+    } catch (err: unknown) {
+      setAlert({ t:'error', msg: (err as any)?.response?.data?.detail || 'Erro ao redefinir a senha.' });
     } finally { setLoading(false); }
   };
 

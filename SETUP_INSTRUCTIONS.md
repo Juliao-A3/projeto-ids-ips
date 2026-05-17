@@ -20,6 +20,19 @@ cd C:\Users\Herder Ernesto Ngola\Desktop\vscode\projeto-ids-ips\backend
 # ativar venv manualmente (se necessário)
 . .venv\Scripts\Activate.ps1
 
+<<<<<<< HEAD
+=======
+# executar API (a partir da raiz do repositório)
+cd ..
+python -m uvicorn backend.main:app --reload
+```
+
+Observações:
+- Crie um arquivo `.env` na raiz do projeto com pelo menos `SECRET_KEY=uma_chave`.
+- Banco de dados: por padrão local usa SQLite (`backend/database/banco.db`), mas em produção use PostgreSQL definindo `DATABASE_URL`.
+- O `requirements.txt` usa `uvicorn[standard]`, que habilita suporte WebSocket para endpoints como `/sniffer/ws`.
+
+>>>>>>> 85b6a24ae68ef8aae4e61f071fe9a0a7eb0089e7
 ## Frontend (Node / Vite / React + TypeScript)
 
 - Caminho do frontend: `frontend/`

@@ -22,21 +22,21 @@ export const Title = styled.h3`
 `;
 
 interface StatusBadgeProps {
-  percentage: number;
+  $percentage: number;
 }
 
 export const StatusBadge = styled.div<StatusBadgeProps>`
   display: flex;
   align-items: center;
   gap: 6px;
-  background: ${({ percentage }) => 
-    percentage >= 80 ? 'rgba(34, 197, 94, 0.1)' : 
-    percentage >= 50 ? 'rgba(234, 179, 8, 0.1)' : 
+  background: ${({ $percentage }) => 
+    $percentage >= 80 ? 'rgba(34, 197, 94, 0.1)' : 
+    $percentage >= 50 ? 'rgba(234, 179, 8, 0.1)' : 
     'rgba(239, 68, 68, 0.1)'
   };
-  border: 1px solid ${({ percentage }) => 
-    percentage >= 80 ? 'rgba(34, 197, 94, 0.3)' : 
-    percentage >= 50 ? 'rgba(234, 179, 8, 0.3)' : 
+  border: 1px solid ${({ $percentage }) => 
+    $percentage >= 80 ? 'rgba(34, 197, 94, 0.3)' : 
+    $percentage >= 50 ? 'rgba(234, 179, 8, 0.3)' : 
     'rgba(239, 68, 68, 0.3)'
   };
   border-radius: 12px;
@@ -44,28 +44,28 @@ export const StatusBadge = styled.div<StatusBadgeProps>`
 `;
 
 interface StatusIconProps {
-  percentage: number;
+  $percentage: number;
 }
 
 export const StatusIcon = styled.div<StatusIconProps>`
   display: flex;
   align-items: center;
   justify-content: center;
-  color: ${({ percentage }) => 
-    percentage >= 80 ? '#22c55e' : 
-    percentage >= 50 ? '#eab308' : 
+  color: ${({ $percentage }) => 
+    $percentage >= 80 ? '#22c55e' : 
+    $percentage >= 50 ? '#eab308' : 
     '#ef4444'
   };
 `;
 
 interface StatusTextProps {
-  percentage: number;
+  $percentage: number;
 }
 
 export const StatusText = styled.span<StatusTextProps>`
-  color: ${({ percentage }) => 
-    percentage >= 80 ? '#22c55e' : 
-    percentage >= 50 ? '#eab308' : 
+  color: ${({ $percentage }) => 
+    $percentage >= 80 ? '#22c55e' : 
+    $percentage >= 50 ? '#eab308' : 
     '#ef4444'
   };
   font-size: 12px;
@@ -93,13 +93,13 @@ export const ProgressLabel = styled.span`
 `;
 
 interface ProgressValueProps {
-  percentage: number;
+  $percentage: number;
 }
 
 export const ProgressValue = styled.span<ProgressValueProps>`
-  color: ${({ percentage }) => 
-    percentage >= 80 ? '#22c55e' : 
-    percentage >= 50 ? '#eab308' : 
+  color: ${({ $percentage }) => 
+    $percentage >= 80 ? '#22c55e' : 
+    $percentage >= 50 ? '#eab308' : 
     '#ef4444'
   };
   font-size: 12px;
@@ -115,17 +115,17 @@ export const ProgressBarContainer = styled.div`
 `;
 
 interface ProgressBarFillProps {
-  percentage: number;
+  $percentage: number;
 }
 
 export const ProgressBarFill = styled.div<ProgressBarFillProps>`
   height: 100%;
-  background: ${({ percentage }) => 
-    percentage >= 80 ? 'linear-gradient(90deg, #22c55e 0%, #16a34a 100%)' : 
-    percentage >= 50 ? 'linear-gradient(90deg, #eab308 0%, #ca8a04 100%)' : 
+  background: ${({ $percentage }) => 
+    $percentage >= 80 ? 'linear-gradient(90deg, #22c55e 0%, #16a34a 100%)' : 
+    $percentage >= 50 ? 'linear-gradient(90deg, #eab308 0%, #ca8a04 100%)' : 
     'linear-gradient(90deg, #ef4444 0%, #dc2626 100%)'
   };
   border-radius: 4px;
-  width: ${({ percentage }) => percentage}%;
+  width: ${({ $percentage }) => $percentage}%;
   transition: width 0.3s ease, background 0.3s ease;
 `;

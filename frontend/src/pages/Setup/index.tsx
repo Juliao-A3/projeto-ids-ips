@@ -6,7 +6,6 @@ import {
   Form, Field, Label, InputRow, InputIcon, EyeBtn,
   StyledInput, ErrorMsg, SubmitBtn, LoginRow, LoginText, LoginLink
 } from "./styles";
-import { api } from "../../services/api";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
 
@@ -24,16 +23,11 @@ export default function Setup() {
 
   const { register, handleSubmit, watch, formState: { errors } } = useForm<FormData>();
   const navigate = useNavigate();
-  const { setUser } = useAuth();
+  useAuth();
 
-  const onSubmit = async (data: FormData) => {
+    const onSubmit = async () => {
     setLoading(true);
     try {
-      const response = await api.post("/auth/register", {
-        nome: data.name,
-        email: data.email,
-        senha: data.password
-      });
 
       // Mostra mensagem de sucesso
       alert("Conta criada com sucesso! Faça login para continuar.");
@@ -41,8 +35,8 @@ export default function Setup() {
       // Redireciona para o login
       navigate("/login", { replace: true });
 
-    } catch (err: any) {
-      if (err.response?.data?.detail) alert(err.response.data.detail);
+    } catch (err: unknown) {
+      if ((err as any)?.response?.data?.detail) alert((err as any).response.data.detail);
       else alert("Erro ao criar conta. Tente novamente.");
     } finally {
       setLoading(false);

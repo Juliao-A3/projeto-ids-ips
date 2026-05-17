@@ -1,0 +1,209 @@
+╔════════════════════════════════════════════════════════════════════╗
+║         🚀 PLANO DE DEPLOYMENT - TUDO PRONTO! 🚀                    ║
+║             Backend Render + Frontend Vercel + Sniffer Local        ║
+╚════════════════════════════════════════════════════════════════════╝
+
+📊 O QUE FOI CRIADO HOJE:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✅ 4 Documentos de Deployment:
+   📄 DEPLOYMENT_SUMMARY.md
+   📄 DEPLOYMENT_STEP_BY_STEP.md
+   📄 DEPLOYMENT_CLOUD_PLAN.md
+   📄 DEPLOYMENT_DOCS_README.md
+
+✅ 2 Scripts de Automação:
+   🔧 check_before_deployment.sh     (validar antes)
+   🔧 validate_deployment.sh         (validar depois)
+
+✅ Arquuetura Documentada:
+   🏗️  Diagrama visual completo
+   🏗️  4 etapas principais
+   🏗️  Valores críticos
+   🏗️  Troubleshooting completo
+
+
+🎯 STATUS ATUAL E PRÓXIMAS AÇÕES:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+STATUS: backend e frontend já estão hospedados.
+   ✅ Backend no Render
+   ✅ Frontend na Vercel
+   ⏳ Falta subir o sniffer local, testar o envio para a cloud e confirmar o dashboard
+
+PASSO 1: Confirmar URLs e tokens (5 min)
+   📖 Abrir: DEPLOYMENT_SUMMARY.md
+   📖 Abrir: DEPLOYMENT_STEP_BY_STEP.md
+   📖 Abrir: DEPLOYMENT_CLOUD_PLAN.md
+
+PASSO 2: Validar Pré-Requisitos Locais (2 min)
+  🔍 Execute no terminal:
+     bash check_before_deployment.sh
+
+PASSO 3: Configurar Sniffer Local (15 min)
+   📋 Seguir a etapa 5 de DEPLOYMENT_STEP_BY_STEP.md
+   📋 Use: bash setup_sniffer_interactive.sh
+
+PASSO 4: Validar Tudo Online (5 min)
+  ✅ Execute no terminal:
+     bash validate_deployment.sh
+
+PASSO 5: Acessar Dashboard e verificar interfaces
+  🌐 Abrir navegador:
+     https://seu-projeto.vercel.app
+
+
+📈 ARQUITETURA FINAL:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+         INTERNET
+             │
+             ├─────→ Vercel CDN
+             │           │
+             │           v
+             │    🌐 Frontend (seu-projeto.vercel.app)
+             │           │
+             │           │ HTTPS + CORS
+             │           │
+             v           v
+         Render Cloud ← API Calls
+         ┌─────────────────────┐
+         │ Backend FastAPI     │
+         │ postgres://...      │
+         │ (seu-backend.onrender.com)
+         │                     │
+         │ /sniffer/events     │
+         │ /sniffer/status     │
+         │ /dashboard/*        │
+         └─────────────────────┘
+                 ▲
+                 │ HTTPS + Bearer Token
+                 │ Requisições a cada 10-30s
+                 │
+         🖥️ PC/VM LOCAL (Este PC)
+         ┌─────────────────────┐
+         │ Docker Sniffer      │
+         │ eth0 (WAN)          │
+         │ eth1 (LAN)          │
+         │ eth2 (LAN)          │
+         │ wlan0 (WLAN)        │
+         └─────────────────────┘
+
+
+🔑 VALORES CRÍTICOS A GUARDAR:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Anote estes valores e confirme se batem com o que já foi publicado:
+
+   Backend URL:      https://projeto-ids-ips.onrender.com
+   Frontend URL:     https://projeto-ids-ips.vercel.app
+   Sniffer Token:    rnd_NI58G0zUFnPDd88wjSYPfCnCBfZO
+  Interfaces:       eth0,eth1,eth2,wlan0
+  Zones:            eth0:wan,eth1:lan,eth2:lan,wlan0:wlan
+
+
+✨ CHECKLIST DE PROGRESSO:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Estado atual:
+
+ [x] Backend deployed no Render (URL ativa)
+ [x] Frontend deployed no Vercel (URL ativa)
+ [ ] Leitura de DEPLOYMENT_SUMMARY.md completada
+ [ ] check_before_deployment.sh passou (todos OK)
+ [ ] .env.sniffer criado com valores corretos
+ [ ] Docker Sniffer container rodando
+ [ ] Sniffer conectado ao backend (/sniffer/status 200 OK)
+ [ ] Frontend carrega sem erros
+ [ ] Fazer login funciona
+ [ ] Dashboard mostra interfaces do PC
+ [ ] Alertas chegando em tempo real
+ [ ] validate_deployment.sh passou (todos OK)
+
+
+⏱️  TIMELINE ESPERADO:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+   Confirmação de URLs:         5 min
+   Sniffer local:              15 min
+   Testes finais:              10 min
+  ─────────────────────────────────
+   TOTAL:                      ~30 min
+
+
+📞 DOCUMENTOS DE REFERÊNCIA:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📄 DEPLOYMENT_DOCS_README.md
+   └─ Guia de navegação completo dos documentos
+
+📄 DEPLOYMENT_SUMMARY.md
+   └─ Sumário executivo (leia PRIMEIRO)
+
+📄 DEPLOYMENT_STEP_BY_STEP.md
+   └─ Passo-a-passo detalhado (SIGA para deployment)
+
+📄 DEPLOYMENT_CLOUD_PLAN.md
+   └─ Plano completo com todas as fases + troubleshooting
+
+🔧 check_before_deployment.sh
+   └─ Valida tudo antes de começar
+
+🔧 validate_deployment.sh
+   └─ Testa tudo após estar online
+
+
+⚠️  IMPORTANTE AGORA:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+TENHA PRONTO:
+  ✓ Código no GitHub pushed (branch main)
+  ✓ Docker instalado no PC
+  ✓ Terminal bash (Linux/Mac ou WSL no Windows)
+
+
+❓ DÚVIDAS FREQUENTES:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+P: Por onde começo?
+R: Leia DEPLOYMENT_SUMMARY.md (5 min), depois configure o sniffer local
+
+P: Quanto tempo leva?
+R: ~30 minutos. Backend e frontend já estão no ar.
+
+P: Vai cobrar?
+R: Não. Render + Vercel têm tier gratuito.
+
+P: Sniffer precisa de outro PC?
+R: Não. Roda em Docker neste PC (localhost).
+
+P: E se der erro?
+R: Consulte seção "Troubleshooting" em DEPLOYMENT_STEP_BY_STEP.md
+
+P: Interfaces não aparecem?
+R: Ler DEPLOYMENT_CLOUD_PLAN.md → Troubleshooting
+
+
+🚀 READY TO GO!  ✨
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Seus documentos estão prontos em:
+  /home/jgd/projeto-ids-ips/
+
+Comece lendo:
+  DEPLOYMENT_SUMMARY.md
+
+Após ler:
+  bash check_before_deployment.sh
+
+Se tudo OK:
+   Siga a etapa do sniffer em DEPLOYMENT_STEP_BY_STEP.md
+
+Boa sorte! 🚀
+
+
+═══════════════════════════════════════════════════════════════════════
+Última atualização: 2026-04-27
+Status: ✅ Tudo pronto
+Tempo de prep: 1-2 horas para deployment completo
+═══════════════════════════════════════════════════════════════════════

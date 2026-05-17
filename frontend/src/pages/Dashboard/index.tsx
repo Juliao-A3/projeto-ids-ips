@@ -1,6 +1,5 @@
 import { Card } from "../../components/Cards";
 import { LogCard } from "../../components/LogCard";
-import { OutputTecnico } from "../../components/OutputTecnico";
 import { MainContent, SystemContainer } from "./styles";
 
 

@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { Cpu, Trash2, Activity } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ReferenceLine, ResponsiveContainer

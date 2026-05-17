@@ -2,6 +2,7 @@ import { LogInfo } from '../LogInfo';
 import TrafficIntegrityStatus from '../TrafficIntegrityStatus';
 import { useSniffer } from '../../../hooks/useSniffer';
 import { api } from '../../../src/services/api';
+import { useMemo, useState } from 'react';
 import {
   LogContainer, LogSection, LogHeader, HeaderTitle,
   ListIcon, LogTitle, ButtonContainer, LogsButton,
@@ -14,6 +15,19 @@ import {
 
 export function LogCard() {
   const { status, loading, error, pacotes, iniciar, pausar, reboot } = useSniffer();
+  const [showOnlyAlerts, setShowOnlyAlerts] = useState(false);
+  const logsBase = pacotes.length > 0 ? pacotes : (status.ultimos_pacotes || []);
+
+  const pacotesFiltrados = useMemo(() => {
+    const lista = logsBase;
+    if (!showOnlyAlerts) {
+      return lista;
+    }
+    return lista.filter((p) => {
+      const tipo = String(p?.tipo || '').toLowerCase();
+      return tipo === 'ataque' || tipo === 'alerta' || tipo === 'anomalia';
+    });
+  }, [logsBase, showOnlyAlerts]);
 
   const handleWhitelist = (ip: string) => {
     api.post('/sniffer/whitelist/add', { ip });
@@ -28,7 +42,9 @@ export function LogCard() {
             <LogTitle>LOGS EM TEMPO REAL</LogTitle>
           </HeaderTitle>
           <ButtonContainer>
-            <LogsButton>FILTROS</LogsButton>
+            <LogsButton onClick={() => setShowOnlyAlerts((prev) => !prev)}>
+              {showOnlyAlerts ? 'MOSTRAR TUDO' : 'SÓ ALERTAS'}
+            </LogsButton>
           </ButtonContainer>
         </LogHeader>
 
@@ -40,24 +56,23 @@ export function LogCard() {
           <span>Destino</span>
           <span>Protocolo</span>
           <span>Tipo</span>
-          <span>Ações</span>
         </ListaMenu>
 
         <Divider />
         <LogsList>
-          {pacotes.length === 0 ? (
+          {pacotesFiltrados.length === 0 ? (
             <div style={{
               textAlign: 'center', padding: '2rem',
               fontFamily: "'Share Tech Mono', monospace",
               fontSize: 11, color: '#64748B'
             }}>
               {status.running
-                ? 'A aguardar pacotes...'
+                ? (showOnlyAlerts ? 'A aguardar alertas...' : 'A aguardar pacotes...')
                 : 'Sniffer inativo — clica em Iniciar para começar'
               }
             </div>
           ) : (
-            pacotes.map((p, i) => <LogInfo key={i} data={p} />)
+            pacotesFiltrados.map((p, i) => <LogInfo key={i} data={p} />)
           )}
         </LogsList>
       </LogSection>

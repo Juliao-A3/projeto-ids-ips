@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { api } from "../src/services/api";
 
 type Status = {
   modelo_ativo: string;
@@ -33,7 +34,11 @@ export function useAIMetrics() {
 
   useEffect(() => {
     const token = localStorage.getItem("access_token");
-    const ws = new WebSocket(`ws://localhost:8000/ai/ws/metrics?token=${token}`);
+    const apiBase = String(api.defaults.baseURL || "").trim();
+    const apiUrl = apiBase ? new URL(apiBase, window.location.origin) : new URL(window.location.origin);
+    const wsProto = apiUrl.protocol === "https:" ? "wss" : "ws";
+    const wsUrl = `${wsProto}://${apiUrl.host}/ai/ws/metrics?token=${encodeURIComponent(token ?? "")}`;
+    const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
       setConnected(true);

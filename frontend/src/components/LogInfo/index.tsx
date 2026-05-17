@@ -3,7 +3,6 @@ import {
     LogRow,
     LogContent,
     Severity,
-    Actions,
     LogContainer,
     Divider
 } from './styles'
@@ -37,16 +36,21 @@ export function LogInfo({ data }: LogInfoProps) {
     const destIp   = data.dest_ip || data.dst_ip || '-';
     const protocolo = data.protocolo || '-';
 
-    // severidade: vem do banco OU inferida do tipo Scapy
-    const severidade = data.severidade
-        || (data.tipo === 'anomalia' ? 'ALTA' : data.tipo === 'normal' ? 'BAIXA' : '-');
+    const tipoNormalizado = (data.tipo || '').toLowerCase();
+    const isAttackEvent = tipoNormalizado === 'ataque' || tipoNormalizado === 'anomalia' || tipoNormalizado === 'alerta';
+
+    // Mostrar exatamente como no terminal: NORMAL ou ALERTA
+    const tipoExibicao =
+        tipoNormalizado === 'normal' ? 'NORMAL' :
+        isAttackEvent ? 'ALERTA' :
+        (data.severidade ? data.severidade.toUpperCase() : '-');
 
     // cor da severidade
     const sevColor =
-        severidade === 'critica' || severidade === 'CRITICA' ? '#EF4444' :
-        severidade === 'alta'    || severidade === 'ALTA'    ? '#FFAB00' :
-        severidade === 'media'   || severidade === 'MEDIA'   ? '#00A3FF' :
-        severidade === 'BAIXA'                               ? '#00C853' : '#64748B';
+        tipoExibicao === 'ALERTA'                                               ? '#EF4444' :
+        tipoExibicao === 'NORMAL' || tipoExibicao === 'BAIXA'                  ? '#00C853' :
+        tipoExibicao === 'MEDIA'                                                ? '#00A3FF' :
+        tipoExibicao === 'CRITICA' || tipoExibicao === 'ALTA'                  ? '#EF4444' : '#64748B';
 
     return (
         <LogContainer>
@@ -64,11 +68,8 @@ export function LogInfo({ data }: LogInfoProps) {
                         </span>
                         <span>{protocolo}</span>
                         <Severity style={{ color: sevColor, borderColor: `${sevColor}44`, background: `${sevColor}12` }}>
-                            {data.bloqueado ? '🔒 BLOQUEADO' : severidade}
+                            {data.bloqueado ? '🔒 BLOQUEADO' : tipoExibicao}
                         </Severity>
-                        <Actions>
-                            <button>DETALHES</button>
-                        </Actions>
                     </LogRow>
                 </LogContent>
             </LogMain>

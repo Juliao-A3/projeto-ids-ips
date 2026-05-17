@@ -1,6 +1,6 @@
 import { Settings, FileText } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../../services/api';
 
 import {
@@ -18,28 +18,58 @@ import {
   AlertConfig,
   ConfigButton,
   RelatorioButton,
-  UserAvatar,
-  UserContainer,
-  NameUser,
-  UserContent,
-  DescriptionUser,
 } from './styles';
 
 export function Header() {
   const navigate = useNavigate();
   const [metrics, setMetrics] = useState<{cpu_load:number;memory:number;network_gbps:number} | null>(null);
+  const requestInFlightRef = useRef(false);
+  const lastTimeoutLogAtRef = useRef(0);
+
+  const systemStatus = !metrics
+    ? { label: 'A VERIFICAR...', tone: 'muted' as const }
+    : metrics.cpu_load >= 85 || metrics.memory >= 90
+      ? { label: 'Sistema Operacional Crítico', tone: 'danger' as const }
+      : metrics.cpu_load >= 65 || metrics.memory >= 75
+        ? { label: 'Sistema Operacional em Atenção', tone: 'warning' as const }
+        : { label: 'Sistema Operacional Estável', tone: 'success' as const };
+
+  const formatNetworkSpeed = (gbps: number) => {
+    if (!Number.isFinite(gbps) || gbps < 0) return '--';
+    if (gbps >= 1) return `${gbps.toFixed(2)} Gbps`;
+    const mbps = gbps * 1000;
+    if (mbps >= 1) return `${mbps.toFixed(1)} Mbps`;
+    const kbps = mbps * 1000;
+    return `${kbps.toFixed(0)} Kbps`;
+  };
 
   useEffect(() => {
     const fetchMetrics = async () => {
+      if (requestInFlightRef.current) {
+        return;
+      }
+
+      requestInFlightRef.current = true;
       try {
         const resp = await api.get('/service/system/metrics');
-        console.log('Metrics recebidas:', resp.data);
         setMetrics(resp.data);
-      } catch (e) {
-        console.error('Erro ao buscar métricas', e);
+      } catch (e: unknown) {
+        const isTimeout = (e as any)?.code === 'ECONNABORTED' || String((e as any)?.message || '').includes('timeout');
+        if (!isTimeout) {
+          console.error('Erro ao buscar métricas', e);
+        } else {
+          const now = Date.now();
+          if (now - lastTimeoutLogAtRef.current > 60000) {
+            console.warn('Timeout ao buscar métricas. Tentando novamente no próximo ciclo.');
+            lastTimeoutLogAtRef.current = now;
+          }
+        }
+      } finally {
+        requestInFlightRef.current = false;
       }
     };
-    fetchMetrics();
+
+    void fetchMetrics();
     const iv = setInterval(fetchMetrics, 5000);
     return () => clearInterval(iv);
   }, []);
@@ -54,7 +84,7 @@ export function Header() {
           </div>
           <SubtitleContainer>
             <span>·</span>
-            <StatusText>Sistema Operacional Estável</StatusText>
+            <StatusText $tone={systemStatus.tone}>{systemStatus.label}</StatusText>
           </SubtitleContainer>
         </HeaderLeft>
 
@@ -70,7 +100,7 @@ export function Header() {
             </StatusInfo>
             <StatusInfo>
               <Loadcpu>NETWORK</Loadcpu>
-              <SpeedStatus>{metrics ? `${metrics.network_gbps} Gbps` : '--'}</SpeedStatus>
+              <SpeedStatus>{metrics ? formatNetworkSpeed(metrics.network_gbps) : '--'}</SpeedStatus>
             </StatusInfo>
           </Metric>
         </HeaderCenter>

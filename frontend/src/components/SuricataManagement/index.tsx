@@ -35,7 +35,7 @@ import {
 } from './styles';
 
 export function SuricataManagement() {
-  const [autoDetectThreads, setAutoDetectThreads] = useState(16);
+  const [autoDetectThreads,] = useState(16);
   const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(true);
   const [updateFrequency, setUpdateFrequency] = useState('DIÁRIO');
   

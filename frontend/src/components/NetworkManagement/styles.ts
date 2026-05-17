@@ -55,6 +55,125 @@ export const SectionContent = styled.div`
   flex-direction: column;
 `;
 
+export const WhitelistEditor = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+`;
+
+export const WhitelistInputRow = styled.div`
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+`;
+
+export const WhitelistInput = styled.input`
+  flex: 1;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid ${(props) => props.theme.colors.border};
+  border-radius: 6px;
+  padding: 12px 16px;
+  font-size: 13px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  color: ${(props) => props.theme.colors.text.primary};
+  transition: all 0.2s;
+
+  &:focus {
+    outline: none;
+    border-color: ${(props) => props.theme.colors.primary};
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  &::placeholder {
+    color: ${(props) => props.theme.colors.text.secondary};
+    opacity: 0.5;
+  }
+`;
+
+export const WhitelistAddButton = styled.button`
+  background: ${(props) => props.theme.colors.primary};
+  color: ${(props) => props.theme.colors.text.primary};
+  border: none;
+  border-radius: 6px;
+  padding: 12px 18px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: opacity 0.2s;
+  white-space: nowrap;
+
+  &:hover:not(:disabled) {
+    opacity: 0.9;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+`;
+
+export const WhitelistList = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+`;
+
+export const WhitelistChip = styled.div`
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid ${(props) => props.theme.colors.border};
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 12px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  color: ${(props) => props.theme.colors.text.primary};
+`;
+
+export const WhitelistChipButton = styled.button`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 50%;
+  background: ${(props) => props.theme.colors.danger}22;
+  color: ${(props) => props.theme.colors.danger};
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0;
+
+  &:hover {
+    background: ${(props) => props.theme.colors.danger}33;
+  }
+`;
+
+export const WhitelistHint = styled.p`
+  font-size: 11px;
+  color: ${(props) => props.theme.colors.text.secondary};
+  margin: 0;
+  line-height: 1.4;
+`;
+
+export const Label = styled.div`
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 10px;
+  color: ${(props) => props.theme.colors.text.muted};
+  letter-spacing: 1px;
+  margin-bottom: 6px;
+`;
+
+export const WhitelistError = styled.p`
+  font-size: 11px;
+  color: ${(props) => props.theme.colors.danger};
+  margin: 0;
+  line-height: 1.4;
+`;
+
 export const BridgeConfig = styled.div`
   display: flex;
   flex-direction: column;
